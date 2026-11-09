@@ -12,7 +12,7 @@
     "assets": "node scripts/generate-assets.mjs",
     "test": "node --test test/*.test.js",
     "pack": "electron-builder --dir",
-    "dist:mac": "electron-builder --mac --publish never"
+    "dist:mac": "electron-builder --mac --x64 --arm64 --publish never"
   },
   "devDependencies": {
     "electron": "45.2.3",
@@ -39,16 +39,7 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        },
-        {
-          "target": "zip",
-          "arch": ["x64", "arm64"]
-        }
-      ],
+      "target": ["dmg", "zip"],
       "extendInfo": {
         "LSUIElement": true,
         "LSMinimumSystemVersion": "11.0",
