@@ -93,13 +93,18 @@ SQLite is the source of truth. The data model is intentionally boring:
 `MemoryService.search` first builds a safe FTS5 query from the user's terms,
 fetches keyword candidates with BM25, and (when an embedder is available)
 computes cosine similarity against stored vectors. Candidates are combined with
-recency and importance, pinned memories are boosted, and duplicates are
-collapsed. Results carry the contributing signals (`keyword`, `vector`,
-`recency`, `importance`, `pinned`) for debugging and UI display.
+recency, importance, pinned status and access frequency, then re-ranked with a
+diversity-aware MMR-style pass so a single topic cannot crowd out the context.
+Recency uses an exponential decay with a configurable half-life
+(`memory.recencyHalfLifeDays`); repeated recall of a memory raises its access
+signal, providing lightweight reinforcement. Results carry the contributing
+signals (`keyword`, `vector`, `recency`, `importance`, `pinned`, `access`) for
+debugging and UI display.
 
 Embeddings are optional. Without an embedding endpoint, recall is keyword +
-recency + importance and all features still work. Embeddings are stored as
-little-endian float32 blobs; changing the embedding model requires reindexing.
+recency + importance + diversity and all features still work. Embeddings are
+stored as little-endian float32 blobs; changing the embedding model requires
+reindexing.
 
 ### Consolidation
 

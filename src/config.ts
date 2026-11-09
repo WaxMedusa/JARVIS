@@ -141,6 +141,8 @@ const ConfigSchema = z.object({
   memory: z.object({
     recallLimit: z.number().int().min(1).max(50).default(10),
     maxRecallChars: z.number().int().min(500).max(40000).default(6000),
+    recencyHalfLifeDays: z.number().int().min(1).max(3650).default(90),
+    diversity: z.number().min(0).max(1).default(0.35),
     extractFacts: z.boolean().default(true),
     consolidateEveryTurns: z.number().int().min(1).max(100).default(6),
     importanceFloor: z.number().min(0).max(1).default(0.15),
@@ -332,6 +334,8 @@ function defaults(env: NodeJS.ProcessEnv, home: string): JarvisConfigData {
     memory: {
       recallLimit: 10,
       maxRecallChars: 6000,
+      recencyHalfLifeDays: 90,
+      diversity: 0.35,
       extractFacts: envBool(env.JARVIS_EXTRACT_FACTS) ?? true,
       consolidateEveryTurns: 6,
       importanceFloor: 0.15,

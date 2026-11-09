@@ -1,5 +1,7 @@
 import {afterEach, describe, expect, it} from 'vitest';
 import {createHarness, type Harness} from './helpers.js';
+import {diversifyHits} from '../src/memory/memory.js';
+import type {MemoryHit, MemoryRecord} from '../src/memory/types.js';
 
 let harness: Harness | undefined;
 
@@ -56,6 +58,58 @@ describe('MemoryService', () => {
     expect(harness.memory.delete(normal.id)).toBe(true);
     expect(harness.memory.getMemory(normal.id)).toBeUndefined();
     expect(harness.memory.delete('mem_missing')).toBe(false);
+  });
+
+  it('tracks recall access as a soft relevance signal', async () => {
+    harness = createHarness();
+    const memory = await harness.memory.remember({content: 'The user keeps a spare key with Mara', importance: 0.6});
+    expect(memory.access_count).toBe(0);
+    const hits = await harness.memory.search('spare key Mara');
+    expect(hits[0]!.memory.id).toBe(memory.id);
+    const after = harness.memory.getMemory(memory.id)!;
+    expect(after.access_count).toBeGreaterThanOrEqual(1);
+    expect(after.last_accessed_at).toBeTruthy();
+  });
+
+  it('prefers fresher memories when relevance is otherwise equal', async () => {
+    harness = createHarness();
+    const older = await harness.memory.remember({content: 'Quarterly review notes for project atlas', importance: 0.5});
+    const newer = await harness.memory.remember({content: 'Quarterly review notes for project atlas updated', importance: 0.5});
+    harness.db.run('UPDATE memories SET updated_at = ? WHERE id = ?', '2020-01-01T00:00:00.000Z', older.id);
+    const hits = await harness.memory.search('quarterly review project atlas', {limit: 5});
+    const olderIndex = hits.findIndex((hit) => hit.memory.id === older.id);
+    const newerIndex = hits.findIndex((hit) => hit.memory.id === newer.id);
+    expect(newerIndex).toBeGreaterThanOrEqual(0);
+    expect(olderIndex === -1 || newerIndex < olderIndex).toBe(true);
+  });
+
+  it('diversifies near-duplicate recall results', () => {
+    const make = (id: string, content: string): MemoryRecord => ({
+      id,
+      content,
+      kind: 'note',
+      source: 'test',
+      source_ref: null,
+      importance: 0.5,
+      sensitivity: 'private',
+      pinned: 0,
+      embedding: null,
+      embedding_model: null,
+      hash: null,
+      access_count: 0,
+      last_accessed_at: null,
+      expires_at: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+    const hits: MemoryHit[] = [
+      {memory: make('a', 'Project atlas roadmap review with Mara'), score: 1, via: ['keyword']},
+      {memory: make('b', 'Project atlas roadmap review with Mara today'), score: 0.99, via: ['keyword']},
+      {memory: make('c', 'Passport renewal appointment is in Paris'), score: 0.9, via: ['keyword']},
+    ];
+    const selected = diversifyHits(hits, 2, 0.5);
+    expect(selected[0]!.memory.id).toBe('a');
+    expect(selected[1]!.memory.id).toBe('c');
   });
 
   it('builds a bounded context block', async () => {

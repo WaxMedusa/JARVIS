@@ -1,0 +1,70 @@
+{
+  "name": "jarvis-companion",
+  "version": "2.0.0",
+  "private": true,
+  "description": "JARVIS — an always-on macOS companion for your personal AI chief-of-staff",
+  "author": "WaxMedusa",
+  "license": "UNLICENSED",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "assets": "node scripts/generate-assets.mjs",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.waxmedusa.jarvis.companion",
+    "productName": "JARVIS",
+    "copyright": "Copyright © 2026 WaxMedusa",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "build/trayTemplate*.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "artifactName": "JARVIS-Companion-${version}-${arch}.${ext}",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "extendInfo": {
+        "LSUIElement": true,
+        "LSMinimumSystemVersion": "11.0",
+        "NSHighResolutionCapable": true
+      }
+    },
+    "dmg": {
+      "title": "JARVIS Companion ${version}",
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {"x": 150, "y": 190, "type": "file"},
+        {"x": 390, "y": 190, "type": "link", "path": "/Applications"}
+      ]
+    }
+  }
+}

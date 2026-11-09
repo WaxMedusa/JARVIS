@@ -2,8 +2,8 @@
 
 A personal AI chief-of-staff that remembers you, acts on your systems, and runs
 on your own machine. **Not a website** — it is a TypeScript backend, a terminal
-assistant, and an optional daemon with an HTTP/SSE API, scheduler and Telegram
-bridge.
+assistant, a daemon with an HTTP/SSE API, scheduler and Telegram bridge, and an
+always-there macOS companion that sits in the corner of your screen.
 
 JARVIS is deliberately single-user and local-first. Its memory lives in SQLite,
 its credentials are encrypted on disk, and every state-changing action passes
@@ -22,8 +22,9 @@ through a policy engine and an append-only audit log.
 
 - **Remember everything worth remembering.** Raw memories, temporally
   versioned profile facts, conversation summaries, and a searchable document
-  index. Recall blends full-text search, optional embeddings, recency,
-  importance and pinning.
+  index. Recall blends full-text search, optional embeddings, a configurable
+  recency half-life, access-frequency feedback, importance, pinning and
+  diversity-aware ordering.
 - **Act, not just chat.** 47 tools for memory, tasks/reminders, files, shell,
   web search/fetch, weather, knowledge search, Google Calendar/Gmail/Tasks,
   Notion, GitHub, Linear, Home Assistant, email, RSS, Supabase sync and
@@ -35,8 +36,12 @@ through a policy engine and an append-only audit log.
   SHA-256 hash-chained audit log.
 - **Work offline.** A deterministic mock provider powers `npm run smoke`,
   tests and development with no API key.
+- **Be always there.** The macOS companion is a frameless, always-on-top
+  panel in the corner of the screen, with a menu-bar icon, `⌘⇧J`, streaming
+  chat, tool activity, approval cards and one-click clipboard capture.
 - **Reach you where you are.** Interactive CLI, one-shot `ask`, HTTP/SSE API,
-  Telegram long-polling, and optional speech-to-text/text-to-speech.
+  Telegram long-polling, the macOS companion, and optional
+  speech-to-text/text-to-speech.
 
 ## Requirements
 
@@ -93,6 +98,32 @@ You can also chat offline:
 JARVIS_LLM_PROVIDER=mock npm run dev -- chat
 ```
 
+## The macOS companion
+
+JARVIS Companion is an Electron menu-bar app that keeps the assistant in the
+corner of your Mac. It requires the daemon:
+
+```bash
+jarvis serve
+```
+
+Download the latest unsigned DMG from
+[Releases](https://github.com/WaxMedusa/JARVIS/releases) — look for
+`JARVIS-Companion-2.0.0-*.dmg` — or build it locally:
+
+```bash
+cd apps/companion
+npm install
+npm run assets
+npm run dist:mac
+```
+
+On first open, macOS Gatekeeper may ask you to confirm an unsigned app
+(right-click → Open). The companion never holds the API token in its renderer:
+Electron's main process talks to the daemon, and the token is encrypted with
+`safeStorage`. See [apps/companion/README.md](apps/companion/README.md) for the
+full security model, development preview, and release workflow.
+
 ## Choosing a model
 
 JARVIS is provider-agnostic. Every OpenAI-compatible endpoint works through
@@ -144,9 +175,13 @@ A fully commented example lives in
 | Tasks | One-off reminders and recurring tasks with a small, explicit recurrence grammar. |
 
 Recall combines SQLite FTS5 (BM25), optional vector cosine similarity, recency,
-importance and pinning. The context builder injects a bounded, relevant slice —
-never the whole database — into each turn. Background consolidation extracts
-profile facts and summarizes old conversations.
+importance and pinning. Recency decays with a configurable half-life
+(`memory.recencyHalfLifeDays`, default 90), memories that are repeatedly useful
+receive an access-frequency boost, and a diversity pass (`memory.diversity`,
+default 0.35) prevents one topic from crowding the whole context. The context
+builder injects a bounded, relevant slice — never the whole database — into
+each turn. Background consolidation extracts profile facts and summarizes old
+conversations.
 
 Useful commands:
 
@@ -369,10 +404,17 @@ npm run smoke
 npm run build
 ```
 
-Tests cover memory/profile versioning, hybrid recall, the path jail and symlink
-escapes, shell and SSRF policy, cron/recurrence, document chunking, the tool
-registry's validation/approval flow, and the agent loop including loop
-detection. No network or API keys are needed.
+Tests cover memory/profile versioning, hybrid recall, recency/access/diversity
+ranking, the path jail and symlink escapes, shell and SSRF policy,
+cron/recurrence, document chunking, the tool registry's validation/approval
+flow, and the agent loop including loop detection. The companion has its own
+`node:test` suite for SSE framing, the daemon client and settings validation.
+No network or API keys are needed:
+
+```bash
+npm test                        # backend (Vitest)
+cd apps/companion && npm test   # companion (node:test)
+```
 
 Project layout:
 
@@ -391,6 +433,7 @@ src/
   notify/       console, webhook, Telegram, desktop notifications
 docs/           architecture, security, Supabase schema
 tests/          Vitest suite
+apps/companion/ macOS menu-bar app (Electron, own tests and release workflow)
 scripts/smoke.ts offline end-to-end check
 ```
 
@@ -408,6 +451,9 @@ scoring, persistence and extension points.
   they are not exercised by the offline test suite.
 - Voice needs external audio tools and an audio-capable model endpoint.
 - MCP servers are arbitrary programs and inherit your permissions.
+- The macOS companion is unsigned and not notarized. Gatekeeper requires a
+  right-click → Open on first launch. Signing needs an Apple Developer account
+  and signing secrets in the release workflow.
 
 ## License
 

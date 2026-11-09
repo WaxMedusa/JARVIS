@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>JARVIS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell" id="shell">
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="reactor" id="reactor" aria-hidden="true"><span class="reactor-core"></span></div>
+        <div class="brand-copy">
+          <h1>JARVIS</h1>
+          <p id="status-line">Connecting to core…</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="history-btn" aria-label="Conversation history" title="History">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.5v5l3.2 1.9"/><path d="M4.2 8.2A8.4 8.4 0 0 1 6.7 5"/></svg>
+        </button>
+        <button class="icon-btn" id="capture-btn" aria-label="Save clipboard to memory" title="Capture clipboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="4.5" width="10" height="16" rx="2.2"/><path d="M9.5 4.5V3.8c0-.7.6-1.3 1.3-1.3h2.4c.7 0 1.3.6 1.3 1.3v.7"/><path d="M10 10h4M10 13.5h4M10 17h2.5"/></svg>
+        </button>
+        <button class="icon-btn" id="settings-btn" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="17" r="2"/></svg>
+        </button>
+        <button class="icon-btn quiet" id="hide-btn" aria-label="Hide JARVIS" title="Hide">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5 12 15l6-5.5"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <button class="offline-banner hidden" id="offline-banner" type="button">
+      <span class="offline-dot"></span>
+      <span>JARVIS core is offline. Start <code>jarvis serve</code>.</span>
+      <span class="offline-action">Settings →</span>
+    </button>
+
+    <main class="thread" id="thread-scroll">
+      <section class="empty" id="empty-state">
+        <div class="halo" aria-hidden="true">
+          <div class="halo-ring ring-a"></div>
+          <div class="halo-ring ring-b"></div>
+          <div class="halo-core"></div>
+        </div>
+        <p class="eyebrow">Personal intelligence</p>
+        <h2 id="greeting">Good evening, sir.</h2>
+        <p class="empty-copy">Your memory, calendar, tasks and the wider world — one quiet interface.</p>
+        <div class="suggestions" id="suggestions">
+          <button type="button" class="suggestion" data-prompt="Brief me on today. What needs my attention?">
+            <span class="suggestion-kicker">Briefing</span>
+            <span>What needs my attention today?</span>
+          </button>
+          <button type="button" class="suggestion" data-prompt="What do you know about me? Summarise my profile and the most important things you remember.">
+            <span class="suggestion-kicker">Memory</span>
+            <span>What do you know about me?</span>
+          </button>
+          <button type="button" class="suggestion" data-prompt="Help me plan my week around my open tasks and priorities.">
+            <span class="suggestion-kicker">Planning</span>
+            <span>Plan my week with me.</span>
+          </button>
+          <button type="button" class="suggestion" data-prompt="Search the web for the most important AI news today and explain why it matters to me.">
+            <span class="suggestion-kicker">Research</span>
+            <span>Catch me up on AI today.</span>
+          </button>
+        </div>
+      </section>
+      <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+    </main>
+
+    <section class="approval hidden" id="approval-card" aria-live="assertive">
+      <div class="approval-head">
+        <span class="approval-shield" aria-hidden="true">!</span>
+        <div>
+          <p class="eyebrow danger">Approval required</p>
+          <h3 id="approval-title">Action pending</h3>
+        </div>
+      </div>
+      <p class="approval-summary" id="approval-summary"></p>
+      <div class="approval-actions">
+        <button type="button" class="ghost danger-text" id="deny-btn">Deny</button>
+        <button type="button" class="primary small" id="approve-btn">Approve</button>
+      </div>
+    </section>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="composer-inner">
+        <textarea id="input" rows="1" maxlength="32000" placeholder="Ask JARVIS anything…" aria-label="Message JARVIS"></textarea>
+        <button type="submit" class="send-btn" id="send-btn" aria-label="Send message" title="Send">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V7M7.5 11.5 12 7l4.5 4.5"/></svg>
+        </button>
+      </div>
+      <div class="composer-hint">
+        <span><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline</span>
+        <span id="hotkey-hint">⌘⇧J to summon</span>
+      </div>
+    </form>
+
+    <footer class="statusbar">
+      <span class="status-item"><span class="live-dot" id="live-dot"></span><span id="foot-state">Connecting</span></span>
+      <span class="status-item" id="foot-meta">memory — · tools —</span>
+    </footer>
+  </div>
+
+  <section class="sheet hidden" id="settings-sheet" aria-label="Settings" aria-modal="true" role="dialog">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow">Companion</p>
+        <h2>Settings</h2>
+      </div>
+      <button class="icon-btn" id="settings-close" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <form id="settings-form" class="sheet-body">
+      <label class="field">
+        <span>Daemon URL</span>
+        <input id="setting-url" type="url" spellcheck="false" placeholder="http://127.0.0.1:8765">
+        <small>JARVIS listens on loopback by default. Keep it local or use a private tunnel.</small>
+      </label>
+      <label class="field">
+        <span>API token</span>
+        <input id="setting-token" type="password" spellcheck="false" placeholder="Only needed for a remote daemon">
+        <small id="token-note">Stored encrypted with the macOS Keychain-backed safe storage.</small>
+      </label>
+      <label class="check-row">
+        <input id="setting-clear-token" type="checkbox">
+        <span>Clear the saved API token</span>
+      </label>
+      <div class="toggle-list">
+        <label class="check-row">
+          <input id="setting-top" type="checkbox">
+          <span>Keep JARVIS above other windows</span>
+        </label>
+        <label class="check-row">
+          <input id="setting-login" type="checkbox">
+          <span>Launch at login</span>
+        </label>
+        <label class="check-row">
+          <input id="setting-launch" type="checkbox">
+          <span>Show the panel when JARVIS starts</span>
+        </label>
+      </div>
+      <label class="field">
+        <span>Global shortcut</span>
+        <input id="setting-hotkey" type="text" spellcheck="false" placeholder="CommandOrControl+Shift+J">
+        <small>Electron accelerator syntax. Restart the app if a shortcut is rejected.</small>
+      </label>
+      <div class="settings-result hidden" id="settings-result"></div>
+      <div class="sheet-actions">
+        <button type="button" class="ghost" id="test-btn">Test connection</button>
+        <button type="submit" class="primary">Save settings</button>
+      </div>
+      <button type="button" class="quit-link" id="quit-btn">Quit JARVIS</button>
+    </form>
+  </section>
+
+  <section class="sheet hidden" id="history-sheet" aria-label="Conversation history" aria-modal="true" role="dialog">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow">Memory in motion</p>
+        <h2>Conversations</h2>
+      </div>
+      <button class="icon-btn" id="history-close" aria-label="Close history">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <button class="new-chat-row" id="history-new" type="button">
+        <span class="plus">+</span><span>Start a new conversation</span>
+      </button>
+      <div id="history-list" class="history-list"><p class="dim">Loading…</p></div>
+    </div>
+  </section>
+
+  <div class="toast hidden" id="toast" role="status"></div>
+
+  <script src="mock.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

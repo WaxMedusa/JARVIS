@@ -1,0 +1,111 @@
+name: Build and release JARVIS Companion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/companion/**'
+      - '.github/workflows/release-macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jarvis-companion-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+          - arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/companion/package-lock.json
+
+      - name: Install
+        working-directory: apps/companion
+        run: npm ci
+
+      - name: Test
+        working-directory: apps/companion
+        run: npm test
+
+      - name: Build icon and disk image
+        working-directory: apps/companion
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run assets
+          npx electron-builder --mac --${{ matrix.arch }} --publish never
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-companion-${{ matrix.arch }}
+          path: |
+            apps/companion/release/*.dmg
+            apps/companion/release/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download both architectures
+        uses: actions/download-artifact@v4
+        with:
+          pattern: jarvis-companion-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Read version
+        id: version
+        working-directory: apps/companion
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: companion-v${{ steps.version.outputs.version }}
+          name: JARVIS Companion v${{ steps.version.outputs.version }}
+          body: |
+            Always-there macOS companion for JARVIS.
+
+            **Requires** the JARVIS daemon on the same machine (default
+            `http://127.0.0.1:8765`). Run `jarvis serve` first.
+
+            Artifacts are unsigned and not notarized. On first launch:
+            right-click the app → Open, or run
+            `xattr -dr com.apple.quarantine /Applications/JARVIS.app`.
+
+            Intel and Apple silicon DMGs/ZIPs are attached below.
+          files: |
+            artifacts/*.dmg
+            artifacts/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          allowUpdates: true

@@ -135,6 +135,27 @@ token-shaped values before writing. The transcript records redacted content for
 stored messages. Redaction is best-effort; treat logs as sensitive and protect
 the data directory.
 
+### 11. macOS companion
+
+The companion is a renderer, not a second policy engine. It can only ask the
+daemon to do something; every request still passes through the daemon's
+approval, path, shell and network controls.
+
+- The BrowserWindow uses `sandbox: true`, `contextIsolation: true` and
+  `nodeIntegration: false`. The preload exposes a fixed IPC allowlist, not
+  `ipcRenderer` itself.
+- All HTTP and SSE traffic happens in the Electron main process. An API token is
+  stored with `safeStorage` (macOS Keychain-backed) and is never returned to the
+  renderer or embedded in the page.
+- Every IPC handler validates that the sender is the companion window.
+- The renderer has a restrictive CSP (`connect-src 'none'`, no remote scripts)
+  and permission requests are denied. Navigation is blocked; only explicit
+  HTTP(S) links are handed to the default browser.
+- Clipboard capture is user-triggered and truncated to 8,000 characters.
+- Release artifacts are unsigned because CI has no Apple signing identity.
+  Gatekeeper therefore requires a right-click → Open on first launch; verify
+  the download source before overriding that warning.
+
 ## Operational checklist
 
 - [ ] Run as a dedicated non-admin OS user; do not run the daemon as root.
@@ -148,6 +169,8 @@ the data directory.
 - [ ] Rotate provider, Google, GitHub, Telegram and Supabase credentials if a
       device is lost.
 - [ ] Verify the audit chain after upgrades: `jarvis audit --verify`.
+- [ ] Verify the companion download and expect first-launch Gatekeeper
+      confirmation until the build is notarized.
 
 ## Known gaps
 

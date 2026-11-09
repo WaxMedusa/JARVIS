@@ -167,21 +167,24 @@ export class MemoryService {
 
     const hasSemantic = [...candidates.values()].some((entry) => entry.via.has('semantic'));
     const scored: MemoryHit[] = [];
+    const halfLife = Math.max(1, this.config.memory.recencyHalfLifeDays);
     for (const entry of candidates.values()) {
       if (options.kinds?.length && !options.kinds.includes(entry.memory.kind)) continue;
       const ageDays = Math.max(0, (Date.now() - Date.parse(entry.memory.updated_at)) / 86_400_000);
-      const recency = Math.exp(-ageDays / 120);
+      const recency = Math.exp(-ageDays / halfLife);
       const importance = clamp01(entry.memory.importance);
+      const access = Math.min(1, Math.log1p(Math.max(0, entry.memory.access_count)) / Math.log1p(24));
       const pinBoost = entry.memory.pinned ? 0.06 : 0;
       const score = hasSemantic
-        ? 0.55 * entry.vector + 0.28 * entry.text + 0.1 * importance + 0.07 * recency + pinBoost
-        : 0.68 * entry.text + 0.2 * importance + 0.12 * recency + pinBoost;
+        ? 0.5 * entry.vector + 0.25 * entry.text + 0.11 * importance + 0.08 * recency + 0.06 * access + pinBoost
+        : 0.62 * entry.text + 0.18 * importance + 0.1 * recency + 0.07 * access + pinBoost;
       if (score < (options.minScore ?? 0)) continue;
       scored.push({memory: entry.memory, score, via: [...entry.via]});
     }
 
     scored.sort((a, b) => b.score - a.score);
-    const top = scored.slice(0, limit);
+    // Greedy MMR-style selection: relevant, but not five restatements of one fact.
+    const top = diversifyHits(scored, limit, this.config.memory.diversity);
     this.touch(top.map((hit) => hit.memory.id));
     return top;
   }
@@ -475,6 +478,56 @@ export function normalizeForHash(value: string): string {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0.5;
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Greedy relevance/diversity trade-off. Scores are discounted by the highest
+ * lexical overlap with already-selected memories, so recall covers distinct
+ * facts instead of repeating paraphrases.
+ */
+export function diversifyHits(hits: MemoryHit[], limit: number, diversity: number): MemoryHit[] {
+  if (limit <= 0 || !hits.length) return [];
+  if (diversity <= 0) return hits.slice(0, limit);
+  const remaining = [...hits];
+  const selected: MemoryHit[] = [];
+  while (remaining.length && selected.length < limit) {
+    let bestIndex = 0;
+    let bestAdjusted = -Infinity;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index]!;
+      let maxOverlap = 0;
+      for (const chosen of selected) {
+        maxOverlap = Math.max(maxOverlap, tokenOverlap(candidate.memory.content, chosen.memory.content));
+      }
+      const adjusted = candidate.score * (1 - diversity * maxOverlap);
+      if (adjusted > bestAdjusted) {
+        bestAdjusted = adjusted;
+        bestIndex = index;
+      }
+    }
+    selected.push(remaining.splice(bestIndex, 1)[0]!);
+  }
+  return selected;
+}
+
+function tokenOverlap(left: string, right: string): number {
+  const a = tokens(left);
+  const b = tokens(right);
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared += 1;
+  return shared / (a.size + b.size - shared);
+}
+
+function tokens(text: string): Set<string> {
+  const stop = new Set(['the', 'and', 'that', 'this', 'with', 'from', 'user', 'about', 'into', 'your', 'have', 'has', 'was', 'were', 'for', 'not', 'but', 'are', 'you']);
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length > 2 && !stop.has(token)),
+  );
 }
 
 export function buildFtsQuery(query: string): string {

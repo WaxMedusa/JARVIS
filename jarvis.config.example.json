@@ -21,6 +21,8 @@
   },
   "memory": {
     "recallLimit": 10,
+    "recencyHalfLifeDays": 90,
+    "diversity": 0.35,
     "extractFacts": true,
     "consolidateEveryTurns": 6,
     "autoIndexVault": true
