@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+data/
+.jarvishome/
+*.db
+*.db-wal
+*.db-shm
+secrets.enc
+master.key
+coverage/
+*.log
+.DS_Store

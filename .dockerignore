@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+*.db
+*.db-*
+*.log
+master.key
+secrets.enc
+data
+.DS_Store
