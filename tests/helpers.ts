@@ -5,6 +5,7 @@ import {z} from 'zod';
 import {loadConfig, type JarvisConfig} from '../src/config.js';
 import {JarvisDB} from '../src/db/database.js';
 import {MemoryService} from '../src/memory/memory.js';
+import {NoteService} from '../src/memory/notes.js';
 import {ConversationStore} from '../src/memory/conversations.js';
 import {TaskService} from '../src/memory/tasks.js';
 import {DocumentIndex} from '../src/memory/documents.js';
@@ -29,6 +30,7 @@ export interface Harness {
   audit: AuditLog;
   secrets: SecretStore;
   memory: MemoryService;
+  notes: NoteService;
   conversations: ConversationStore;
   tasks: TaskService;
   documents: DocumentIndex;
@@ -60,6 +62,7 @@ export function createHarness(options: {script?: MockTurn[]; overrides?: Record<
   const audit = new AuditLog(db, true);
   const secrets = new SecretStore(config.paths.secrets, {keyPath: config.paths.masterKey});
   const memory = new MemoryService({db, config, embedder: null});
+  const notes = new NoteService({db, config});
   const conversations = new ConversationStore(db);
   const tasks = new TaskService({db, config});
   const documents = new DocumentIndex({db, config, policy, embedder: null});
@@ -84,6 +87,7 @@ export function createHarness(options: {script?: MockTurn[]; overrides?: Record<
     db,
     logger: getLogger(),
     memory,
+    notes,
     conversations,
     tasks,
     documents,
@@ -105,6 +109,7 @@ export function createHarness(options: {script?: MockTurn[]; overrides?: Record<
     db,
     logger: getLogger(),
     memory,
+    notes,
     conversations,
     tasks,
     documents,
@@ -128,6 +133,7 @@ export function createHarness(options: {script?: MockTurn[]; overrides?: Record<
     audit,
     secrets,
     memory,
+    notes,
     conversations,
     tasks,
     documents,

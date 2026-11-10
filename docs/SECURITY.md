@@ -117,8 +117,13 @@ notarization.
 - When a token is configured, all `/v1/*` routes require
   `Authorization: Bearer <token>` using a timing-safe comparison.
 - `/health` is public and intentionally minimal.
-- Request bodies are capped (`server.maxBodyBytes`, default 2 MiB); chat input
-  is capped at 32,000 characters.
+- Request bodies are capped (`server.maxBodyBytes`, default 2 MiB); the two
+  audio upload routes get an explicit `voice.maxAudioBytes` cap (default 25 MiB)
+  plus a small multipart allowance, and chat input is capped at 32,000
+  characters. Audio MIME types are validated before transcription.
+- Note audio is stored under `<JARVIS_HOME>/notes-audio` with mode `0600`, is
+  never returned by the notes list, and is streamed only through the
+  authenticated `/v1/notes/:id/audio` route.
 - No CORS wildcard is enabled. If you put it behind a reverse proxy, terminate
   TLS there and keep the upstream on a private network.
 
@@ -148,13 +153,20 @@ approval, path, shell and network controls.
   stored with `safeStorage` (macOS Keychain-backed) and is never returned to the
   renderer or embedded in the page.
 - Every IPC handler validates that the sender is the companion window.
-- The renderer has a restrictive CSP (`connect-src 'none'`, no remote scripts)
-  and permission requests are denied. Navigation is blocked; only explicit
+- The renderer has a restrictive CSP (`connect-src 'none'`, no remote scripts).
+  Its permission handler allows only `media` audio for this one window; camera
+  and screen capture remain denied. Navigation is blocked; only explicit
   HTTP(S) links are handed to the default browser.
 - Clipboard capture is user-triggered and truncated to 8,000 characters.
-- Release artifacts are unsigned because CI has no Apple signing identity.
-  Gatekeeper therefore requires a right-click → Open on first launch; verify
-  the download source before overriding that warning.
+- Voice audio goes from the renderer to the main process over IPC and then to
+  the local daemon. The renderer never receives the daemon API token, and audio
+  is sent only to the configured transcription endpoint.
+- Release artifacts built by the workflow are produced on GitHub macOS runners,
+  signed with a Developer ID Application certificate, hardened at runtime, and
+  notarized by Apple. The workflow verifies the signature and stapled ticket
+  before publishing and fails closed when the signing secrets are absent. The
+  published 2.0.0 artifacts predate this gate and should be replaced by a
+  signed rerun.
 
 ## Operational checklist
 
@@ -169,8 +181,9 @@ approval, path, shell and network controls.
 - [ ] Rotate provider, Google, GitHub, Telegram and Supabase credentials if a
       device is lost.
 - [ ] Verify the audit chain after upgrades: `jarvis audit --verify`.
-- [ ] Verify the companion download and expect first-launch Gatekeeper
-      confirmation until the build is notarized.
+- [ ] Verify the companion download with
+      `spctl --assess --type execute -vv /Applications/JARVIS.app`; it should
+      report `Notarized Developer ID`.
 
 ## Known gaps
 

@@ -31,6 +31,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Apple signing secrets
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Missing Apple release secrets: ${missing[*]}. See apps/companion/README.md#signed-release-setup."
+            exit 1
+          fi
+
       - name: Node
         uses: actions/setup-node@v4
         with:
@@ -46,13 +65,30 @@ jobs:
         working-directory: apps/companion
         run: npm test
 
-      - name: Build icon and disk image
+      - name: Build, sign, and notarize
         working-directory: apps/companion
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm run assets
-          npx electron-builder --mac --${{ matrix.arch }} --publish never
+          npx electron-builder --mac --${{ matrix.arch }} --publish never --config.mac.notarize=true --config.forceCodeSigning=true
+
+      - name: Verify signature and notarization
+        working-directory: apps/companion
+        run: |
+          app="$(find release -maxdepth 2 -type d -name 'JARVIS.app' -print -quit)"
+          if [ -z "$app" ]; then
+            echo "::error::JARVIS.app was not produced."
+            exit 1
+          fi
+          echo "Verifying $app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -102,9 +138,8 @@ jobs:
             **Requires** the JARVIS daemon on the same machine (default
             `http://127.0.0.1:8765`). Run `jarvis serve` first.
 
-            Artifacts are unsigned and not notarized. On first launch:
-            right-click the app → Open, or run
-            `xattr -dr com.apple.quarantine /Applications/JARVIS.app`.
+            Signed with a Developer ID Application certificate and notarized
+            by Apple. Gatekeeper verifies the stapled ticket on first launch.
 
             Intel and Apple silicon DMGs/ZIPs are attached below.
           files: |

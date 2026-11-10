@@ -14,8 +14,9 @@ how state is stored, and where to extend it.
                         ├──► ToolRegistry ──► Policy ──► approval ──► tools
                         │                         │
                         │                         └──► AuditLog (hash chain)
-                        ├──► MemoryService / ConversationStore / TaskService
+                        ├──► MemoryService / NoteService / ConversationStore / TaskService
                         ├──► DocumentIndex (FTS + optional vectors)
+                        ├──► AudioNoteService ──► VoiceService (transcription) / small LLM
                         └──► IntegrationsHub (Google, Notion, GitHub, …)
 ```
 
@@ -78,6 +79,7 @@ SQLite is the source of truth. The data model is intentionally boring:
 | --- | --- |
 | `memories` | Raw durable statements with kind, source, importance, sensitivity, pin, TTL, hash and optional embedding |
 | `memories_fts` | FTS5 index, kept in sync by insert/delete/update triggers |
+| `notes`, `notes_fts` | User-authored notes, tags, pin/archive state and optional local audio; FTS5 triggers cover title, body, summary and tags |
 | `profile_facts` | Keyed stable attributes; a partial unique index allows one active value per key; `superseded_by` preserves history |
 | `conversations`, `messages`, `messages_fts` | Transcripts and full-text history search |
 | `documents`, `chunks`, `chunks_fts` | Indexed files, overlapping chunks and their search index |
@@ -114,6 +116,23 @@ the same versioning rules as manual profile edits, so automated extraction canno
 silently destroy history. Maintenance prunes low-value, expired or excess
 memories according to retention settings.
 
+## Notes and audio capture
+
+`NoteService` owns notes and their optional audio files. Notes are separate from
+memories: they are user-authored, editable, taggable and never pruned by the
+memory retention policy. Audio is stored under `<JARVIS_HOME>/notes-audio/`
+with a generated filename and the original MIME type; the database stores only
+the filename, so the data directory remains movable. Deleting a note removes its
+audio attachment. The API streams audio only through an authenticated route.
+
+`AudioNoteService` takes a multipart recording from the companion, validates its
+size and MIME type, sends it to `VoiceService.transcribeBuffer`, and creates a
+note. With a real small model it requests a JSON structure (title, summary,
+action items, tags) and falls back to the raw transcript if that call fails or
+the provider is the offline mock. The transcript is always preserved. The
+companion's renderer captures with `MediaRecorder`; the main process owns the
+HTTP upload, so the API token never reaches the renderer.
+
 ## Tools and permissions
 
 Every tool is a `ToolDefinition` with a Zod schema, risk level, category,
@@ -126,8 +145,8 @@ Risk tiers:
 | Risk | Meaning | Typical examples |
 | --- | --- | --- |
 | `read` | No local state change | `recall`, `read_file`, `web_search` |
-| `internal` | Reversible state inside JARVIS | `remember`, `create_task`, `update_profile` |
-| `write` | Changes files or external local state | `write_file`, `index_documents` |
+| `internal` | Reversible state inside JARVIS | `remember`, `create_task`, `update_profile`, `notes_create` |
+| `write` | Changes files or external local state | `write_file`, `index_documents`, `notes_delete` |
 | `execute` | Runs a process | `run_shell` |
 | `external` | Reads from a third party | Gmail read, GitHub, weather |
 | `irreversible` | Sends, deletes, spends | `gmail_send`, `email_send`, `forget_memory` (write + explicit user intent) |

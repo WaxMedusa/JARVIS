@@ -3,6 +3,7 @@ import {JarvisDB} from '../db/database.js';
 import {ConversationStore} from '../memory/conversations.js';
 import {DocumentIndex} from '../memory/documents.js';
 import {MemoryService} from '../memory/memory.js';
+import {NoteService} from '../memory/notes.js';
 import {TaskService} from '../memory/tasks.js';
 import {Policy} from '../security/policy.js';
 import {AuditLog} from '../security/audit.js';
@@ -25,6 +26,7 @@ export interface StorageBundle {
   policy: Policy;
   audit: AuditLog;
   memory: MemoryService;
+  notes: NoteService;
   conversations: ConversationStore;
   tasks: TaskService;
   documents: DocumentIndex;
@@ -75,6 +77,7 @@ export function openStorage(globals: CliGlobalOptions): StorageBundle {
   }
 
   const memory = new MemoryService({db, config, embedder});
+  const notes = new NoteService({db, config});
   const conversations = new ConversationStore(db);
   const tasks = new TaskService({db, config});
   const documents = new DocumentIndex({db, config, policy, embedder});
@@ -86,6 +89,7 @@ export function openStorage(globals: CliGlobalOptions): StorageBundle {
     policy,
     audit,
     memory,
+    notes,
     conversations,
     tasks,
     documents,

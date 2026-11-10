@@ -22,8 +22,9 @@ const {JarvisClient} = require('./jarvis-client');
 const {DEFAULT_SETTINGS, normalizeInput, publicSettings} = require('./settings');
 
 const PANEL_WIDTH = 392;
-const PANEL_HEIGHT = 620;
+const PANEL_HEIGHT = 660;
 const PANEL_MARGIN = 18;
+const MAX_AUDIO_BYTES = 26 * 1024 * 1024;
 
 let win = null;
 let tray = null;
@@ -307,7 +308,9 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     {label: 'Summon JARVIS', click: () => showPanel(true)},
     {label: 'New conversation', click: () => { showPanel(true); sendUi('new-chat'); }},
+    {label: 'New note', click: () => { showPanel(true); sendUi('new-note'); }},
     {label: 'Capture clipboard to memory', click: () => { void captureClipboard().catch((error) => sendUi('error', {message: error.message})); }},
+    {label: 'Capture clipboard to notes', click: () => { void captureClipboardNote().catch((error) => sendUi('error', {message: error.message})); }},
     {type: 'separator'},
     {
       label: 'Always on top',
@@ -345,6 +348,58 @@ async function captureClipboard() {
   }
   sendUi('captured', {id: memory?.id, chars: content.length});
   return {ok: true, id: memory?.id, chars: content.length};
+}
+
+async function captureClipboardNote() {
+  const text = clipboard.readText().trim();
+  if (!text) throw new Error('The clipboard is empty.');
+  const content = text.slice(0, 8000);
+  const title = content.split(/\r?\n/)[0].replace(/^#+\s*/, '').slice(0, 80) || 'Clipboard note';
+  const note = await createClient().createNote({title, content, source: 'clipboard'});
+  if (Notification.isSupported()) new Notification({title: 'JARVIS', body: 'Clipboard saved to notes.'}).show();
+  sendUi('note-captured', {id: note?.id, title: note?.title});
+  return {ok: true, id: note?.id, title: note?.title, chars: content.length};
+}
+
+function audioPayload(payload = {}) {
+  const data = payload && typeof payload === 'object' ? payload.data : null;
+  let buffer;
+  if (data instanceof ArrayBuffer) buffer = Buffer.from(data);
+  else if (ArrayBuffer.isView(data)) buffer = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  else if (typeof data === 'string') buffer = Buffer.from(data, 'base64');
+  else throw new Error('Audio data is required.');
+  if (!buffer.length) throw new Error('The recording is empty.');
+  if (buffer.length > MAX_AUDIO_BYTES) throw new Error('The recording is too large.');
+  const mime = String(payload.mime || 'audio/webm').split(';')[0].trim().toLowerCase();
+  if (!mime.startsWith('audio/') && mime !== 'video/webm' && mime !== 'application/octet-stream') {
+    throw new Error('Unsupported audio type.');
+  }
+  const filename = String(payload.filename || (mime.includes('mp4') ? 'voice-note.m4a' : 'voice-note.webm')).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+  return {buffer, mime, filename};
+}
+
+function noteInput(payload = {}) {
+  const title = String(payload.title || '').trim().slice(0, 200);
+  const content = String(payload.content || '').slice(0, 100_000);
+  if (!title && !content.trim()) throw new Error('A note needs a title or content.');
+  return {
+    title,
+    content,
+    tags: payload.tags,
+    pinned: payload.pinned === true,
+    source: typeof payload.source === 'string' ? payload.source : 'companion',
+  };
+}
+
+function notePatch(payload = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid note update.');
+  const patch = {};
+  if (typeof payload.title === 'string') patch.title = payload.title.slice(0, 200);
+  if (typeof payload.content === 'string') patch.content = payload.content.slice(0, 100_000);
+  if (payload.tags !== undefined) patch.tags = payload.tags;
+  if (typeof payload.pinned === 'boolean') patch.pinned = payload.pinned;
+  if (typeof payload.archived === 'boolean') patch.archived = payload.archived;
+  return patch;
 }
 
 function assertSender(event) {
@@ -392,6 +447,57 @@ function registerIpc() {
     if (typeof conversationId !== 'string' || !conversationId) throw new Error('Conversation id is required.');
     return createClient().messages(conversationId);
   });
+  handle('notes:list', (options = {}) => {
+    const safe = options && typeof options === 'object' ? options : {};
+    return createClient().notes({
+      query: typeof safe.query === 'string' ? safe.query.slice(0, 300) : undefined,
+      tag: typeof safe.tag === 'string' ? safe.tag.slice(0, 40) : undefined,
+      archived: safe.archived === true,
+      limit: Number.isFinite(Number(safe.limit)) ? Math.min(Math.max(Number(safe.limit), 1), 200) : 100,
+    });
+  });
+  handle('notes:get', (id) => {
+    if (typeof id !== 'string' || !id) throw new Error('Note id is required.');
+    return createClient().note(id);
+  });
+  handle('notes:create', (payload) => createClient().createNote(noteInput(payload)));
+  handle('notes:update', (payload = {}) => {
+    if (!payload || typeof payload.id !== 'string' || !payload.id) throw new Error('Note id is required.');
+    return createClient().updateNote(payload.id, notePatch(payload.patch));
+  });
+  handle('notes:delete', (id) => {
+    if (typeof id !== 'string' || !id) throw new Error('Note id is required.');
+    return createClient().deleteNote(id);
+  });
+  handle('calendar:list', (days = 7) => createClient().calendar(Math.min(Math.max(Number(days) || 7, 1), 60)));
+  handle('calendar:create', (payload = {}) => {
+    if (!payload || typeof payload !== 'object') throw new Error('Invalid event.');
+    const summary = String(payload.summary || '').trim();
+    const start = String(payload.start || '');
+    const end = String(payload.end || '');
+    if (!summary) throw new Error('Event title is required.');
+    if (!start || !end) throw new Error('Event start and end are required.');
+    return createClient().createCalendarEvent({
+      summary: summary.slice(0, 300),
+      start,
+      end,
+      description: typeof payload.description === 'string' ? payload.description.slice(0, 8000) : undefined,
+      location: typeof payload.location === 'string' ? payload.location.slice(0, 500) : undefined,
+      attendees: Array.isArray(payload.attendees) ? payload.attendees : undefined,
+    });
+  });
+  handle('audio:transcribe', (payload) => createClient().transcribeAudio(audioPayload(payload)));
+  handle('audio:note', (payload = {}) => {
+    const audio = audioPayload(payload);
+    return createClient().createAudioNote({
+      ...audio,
+      title: typeof payload.title === 'string' ? payload.title.slice(0, 200) : undefined,
+      tags: payload.tags,
+      durationSeconds: Number(payload.durationSeconds) || undefined,
+      summarize: payload.summarize !== false,
+    });
+  });
+  handle('app:capture-clipboard-note', () => captureClipboardNote());
   handle('jarvis:approve', (payload = {}) => {
     if (typeof payload.id !== 'string' || !payload.id) throw new Error('Approval id is required.');
     return createClient().approve(payload.id, payload.approved === true);
@@ -470,7 +576,16 @@ if (!app.requestSingleInstanceLock()) {
       app.setActivationPolicy('accessory');
       app.dock?.hide();
     }
-    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      const types = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+      const audioOnly = types.length === 0 || types.every((type) => type === 'audio');
+      const allowed = permission === 'media' && audioOnly && Boolean(win && !win.isDestroyed() && webContents === win.webContents);
+      callback(allowed);
+    });
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+      if (permission !== 'media' || !win || win.isDestroyed() || webContents !== win.webContents) return false;
+      return !details?.mediaType || details.mediaType === 'audio';
+    });
 
     store = new SettingsStore();
     registerIpc();

@@ -4,6 +4,7 @@ import {createLLM, type LLMSet} from '../llm/index.js';
 import {StructuredLogger, getLogger, setLogger, type Logger} from './logger.js';
 import {errorMessage} from './errors.js';
 import {MemoryService} from '../memory/memory.js';
+import {NoteService} from '../memory/notes.js';
 import {ConversationStore} from '../memory/conversations.js';
 import {TaskService} from '../memory/tasks.js';
 import {DocumentIndex} from '../memory/documents.js';
@@ -13,9 +14,12 @@ import {AuditLog} from '../security/audit.js';
 import {SecretStore} from '../security/secrets.js';
 import {IntegrationsHub} from '../integrations/index.js';
 import {McpManager} from '../integrations/mcp.js';
+import {VoiceService} from '../voice/index.js';
+import {AudioNoteService} from '../notes/audio.js';
 import {NotificationHub} from '../notify/index.js';
 import {ToolRegistry} from '../tools/registry.js';
 import {memoryTools} from '../tools/memory-tools.js';
+import {noteTools} from '../tools/note-tools.js';
 import {fileTools} from '../tools/files.js';
 import {shellTools} from '../tools/shell.js';
 import {webTools} from '../tools/web.js';
@@ -38,9 +42,12 @@ export interface App {
   llm: LLMSet;
   embedder: LLMSet['embedder'];
   memory: MemoryService;
+  notes: NoteService;
   conversations: ConversationStore;
   tasks: TaskService;
   documents: DocumentIndex;
+  voice: VoiceService;
+  audioNotes: AudioNoteService;
   integrations: IntegrationsHub;
   notifier: NotificationHub;
   registry: ToolRegistry;
@@ -86,9 +93,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<App> {
     const llm = options.llmSet ?? createLLM(config, {env: options.env ?? process.env});
     const embedder = llm.embedder;
     const memory = new MemoryService({db, config, embedder});
+    const notes = new NoteService({db, config});
     const conversations = new ConversationStore(db);
     const tasks = new TaskService({db, config});
     const documents = new DocumentIndex({db, config, policy, embedder});
+    const voice = new VoiceService(config);
+    const audioNotes = new AudioNoteService({config, notes, transcriber: voice, llm});
     const integrations = new IntegrationsHub({config, secrets, db, policy});
     const notifier = new NotificationHub(config);
     const consolidator = new Consolidator({config, db, memory, conversations, tasks, llm});
@@ -96,6 +106,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<App> {
 
     if (options.registerTools !== false) {
       registry.registerMany(memoryTools);
+      registry.registerMany(noteTools);
       registry.registerMany(fileTools);
       registry.registerMany(shellTools);
       registry.registerMany(webTools);
@@ -119,6 +130,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<App> {
       db,
       logger,
       memory,
+      notes,
       conversations,
       tasks,
       documents,
@@ -161,9 +173,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<App> {
       llm,
       embedder,
       memory,
+      notes,
       conversations,
       tasks,
       documents,
+      voice,
+      audioNotes,
       integrations,
       notifier,
       registry,

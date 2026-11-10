@@ -113,6 +113,27 @@ program
           console.log(`${pc.green('stored')} ${pc.cyan(memory.id)}`);
           break;
         }
+        case 'notes': {
+          const rows = argument
+            ? app.notes.list({query: argument, limit: 20})
+            : app.notes.list({limit: 20});
+          if (!rows.length) console.log(pc.dim('No notes found.'));
+          for (const note of rows) {
+            const tags = note.tags.length ? ` ${pc.dim(note.tags.map((tag) => `#${tag}`).join(' '))}` : '';
+            console.log(`${pc.cyan(note.id)} ${pc.bold(note.title)}${tags} ${pc.dim(note.updated_at.slice(0, 10))}`);
+            console.log(pc.dim(note.content.replace(/\s+/g, ' ').slice(0, 240)));
+          }
+          break;
+        }
+        case 'note': {
+          if (!argument) {
+            console.log(pc.dim('Usage: /note <something worth keeping>'));
+            break;
+          }
+          const note = app.notes.create({content: argument, source: 'cli'});
+          console.log(`${pc.green('note created')} ${pc.cyan(note.id)} ${note.title}`);
+          break;
+        }
         case 'profile':
           printProfile(app);
           break;

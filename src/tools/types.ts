@@ -11,6 +11,7 @@ import type {SecretStore} from '../security/secrets.js';
 import type {ConversationStore} from '../memory/conversations.js';
 import type {DocumentIndex} from '../memory/documents.js';
 import type {MemoryService} from '../memory/memory.js';
+import type {NoteService} from '../memory/notes.js';
 import type {TaskService} from '../memory/tasks.js';
 
 export interface ApprovalRequest {
@@ -44,6 +45,7 @@ export interface ToolContext {
   db: JarvisDB;
   logger: Logger;
   memory: MemoryService;
+  notes: NoteService;
   conversations: ConversationStore;
   tasks: TaskService;
   documents: DocumentIndex;

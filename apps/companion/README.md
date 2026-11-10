@@ -16,9 +16,13 @@ holds an API token and never talks to the network directly.
   stop/reconnect, and conversation history from the daemon.
 - **Approval cards** — when a tool needs consent, the action appears in the
   panel with Approve/Deny; the backend policy still enforces the final decision.
-- **Quick capture** — save the current clipboard to long-term memory from the
-  tray or the header, with a native notification.
-- **Memory-aware status** — model, online state, memory count, tool count.
+- **Notes** — a searchable second brain with tags, pinning, archiving and a
+  full note editor. Capture the clipboard to notes from the tray too.
+- **Agenda** — a seven-day Google Calendar view with all-day/timed events and a
+  native event creator; when Google is not connected the panel explains how.
+- **Voice capture** — dictate into the composer or record a memo that becomes a
+  transcribed, optionally AI-structured note. Audio is stored by the daemon.
+- **Memory-aware status** — model, online state, memory count, note count, tool count.
 - **No browser chrome** — borderless glass panel, custom typography and arc
   reactor motion; dock icon hidden (`LSUIElement`).
 - **Encrypted credentials** — remote daemon API tokens use Electron
@@ -38,17 +42,15 @@ holds an API token and never talks to the network directly.
 
 ## Run it
 
-Download the latest `JARVIS-Companion-2.0.0-*.dmg` from the repository's
-Releases page, open it, and drag JARVIS to Applications.
+Download the latest `JARVIS-Companion-*.dmg` from the repository's Releases
+page, open it, and drag JARVIS to Applications.
 
-The build is **unsigned and not notarized** (there is no Apple Developer signing
-certificate in CI). On first launch, macOS Gatekeeper may block it:
-
-- Right-click the app → **Open** → **Open**, or
-- `xattr -dr com.apple.quarantine /Applications/JARVIS.app`
-
-This is a normal limitation of an unsigned open-source build, not a sign that
-the app is damaged. Build it yourself if you prefer.
+New release builds are signed and notarized by the workflow; the currently
+published 2.0.0 artifacts predate signing and remain unsigned until the release
+workflow is re-run with the credentials below. The workflow fails before
+building when those credentials are missing, so it cannot silently publish an
+unsigned build as a signed release. Local builds are unsigned unless you
+configure the same credentials.
 
 ## Local development
 
@@ -74,7 +76,10 @@ python3 -m http.server 4400 --bind 0.0.0.0 --directory src/renderer
 
 The badge in the corner confirms preview mode. Typing “brief me”, “what do you
 know about me”, “remember…”, or anything containing “email” exercises the
-streaming, tool, history and approval states.
+streaming, tool, history and approval states. The Notes tab, note editor,
+Agenda, event creator and simulated voice-note flow run entirely against the
+preview bridge. The browser may deny microphone access for the real recorder;
+that is expected outside the packaged Electron app.
 
 ## Build a DMG
 
@@ -84,19 +89,55 @@ npm run assets
 npm run dist:mac
 ```
 
-Artifacts land in `release/`: separate `x64` and `arm64` DMGs and ZIPs. The
-build is unsigned; macOS will warn on first open.
+Artifacts land in `release/`: separate `x64` and `arm64` DMGs and ZIPs. Local
+builds are unsigned by default; configure the credentials below to sign and
+notarize them.
 
 The GitHub workflow `.github/workflows/release-macos.yml` does this on a macOS
 runner and publishes a release when `apps/companion/**` lands on `main` (or when
 run manually). It uses the version in `package.json` as the tag
-`companion-v<version>`.
+`companion-v<version>`. In CI, notarization is mandatory, and the workflow
+verifies the signed app with `codesign`, `xcrun stapler` and `spctl` before
+publishing.
+
+### Signed release setup
+
+Add these as **repository secrets** under Settings → Secrets and variables →
+Actions. All five are required; the build stops with an annotation naming any
+that are missing.
+
+| Secret | Value |
+| --- | --- |
+| `CSC_LINK` | Base64 of the **Developer ID Application** certificate and private key, exported as `.p12` |
+| `CSC_KEY_PASSWORD` | Password used when exporting that `.p12` |
+| `APPLE_ID` | Apple ID email for the developer team |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from [appleid.apple.com](https://appleid.apple.com) |
+| `APPLE_TEAM_ID` | 10-character Apple Developer Team ID |
+
+Create a **Developer ID Application** certificate in the Apple Developer
+portal, install it in Keychain Access, then export the certificate and its
+private key as a `.p12`. Base64-encode it without line breaks:
+
+```bash
+base64 -i DeveloperID.p12 | tr -d '\n' | pbcopy
+```
+
+Paste the result into `CSC_LINK`. Never commit the certificate, its password, or
+the app-specific password. The workflow passes them to electron-builder only
+for the build step; it uses the Apple notary service and does not upload the
+credentials as artifacts. CI also enables `forceCodeSigning` and mandatory
+notarization, so a missing or invalid certificate stops the build.
 
 ## Security model
 
 - `contextIsolation: true`, `nodeIntegration: false`, sandboxed renderer.
 - Only a narrow IPC bridge is exposed: settings, status, chat, approvals,
-  history, clipboard capture, hide/quit.
+  history, notes, calendar, audio uploads/transcription, clipboard capture and
+  hide/quit.
+- Electron's permission handler allows `media` only for audio requested by the
+  companion window; camera and screen capture stay denied. The packaged app
+  declares `NSMicrophoneUsageDescription`. Recording stops when the user stops
+  it or after five minutes.
 - All daemon requests happen in the main process; the API token is encrypted at
   rest with `safeStorage` and is never returned to the renderer.
 - CSP disables remote scripts, remote connections, objects and form actions.
@@ -109,10 +150,15 @@ run manually). It uses the version in `package.json` as the tag
 
 ## Known limitations
 
-- Unsigned/notarized builds require a paid Apple Developer account; the release
-  workflow is ready for signing secrets when you have them.
+- Signed/notarized releases require a paid Apple Developer account and the five
+  repository secrets above. Without them the release workflow fails before
+  building rather than publishing an unsigned release.
 - Uses the daemon's HTTP API; it cannot start `jarvis serve` for you.
-- No microphone capture yet. Voice remains available through the CLI/daemon.
+- Voice transcription needs an audio-capable OpenAI-compatible endpoint
+  configured on the daemon. The companion records audio, but the daemon owns
+  transcription and note storage.
+- Google Agenda needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+  `jarvis auth google` on the daemon.
 - The global shortcut depends on macOS accepting the Electron accelerator.
   Settings reports when a shortcut is rejected.
 - A second instance focuses the existing panel rather than opening another.

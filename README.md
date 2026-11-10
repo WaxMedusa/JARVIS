@@ -25,8 +25,12 @@ through a policy engine and an append-only audit log.
   index. Recall blends full-text search, optional embeddings, a configurable
   recency half-life, access-frequency feedback, importance, pinning and
   diversity-aware ordering.
-- **Act, not just chat.** 47 tools for memory, tasks/reminders, files, shell,
-  web search/fetch, weather, knowledge search, Google Calendar/Gmail/Tasks,
+- **Capture the day, not just the conversation.** First-class notes with FTS5
+  search, tags, pinning, archiving, clipboard capture, voice dictation and
+  audio-to-note transcription. Notes can be edited in the companion or CLI and
+  are available to the agent as tools.
+- **Act, not just chat.** 53 tools for notes, memory, tasks/reminders, files,
+  shell, web search/fetch, weather, knowledge search, Google Calendar/Gmail/Tasks,
   Notion, GitHub, Linear, Home Assistant, email, RSS, Supabase sync and
   sub-agent research.
 - **Be proactive.** Morning and evening briefings, due reminders, custom cron
@@ -38,16 +42,16 @@ through a policy engine and an append-only audit log.
   tests and development with no API key.
 - **Be always there.** The macOS companion is a frameless, always-on-top
   panel in the corner of the screen, with a menu-bar icon, `⌘⇧J`, streaming
-  chat, tool activity, approval cards and one-click clipboard capture.
+  chat, notes, a seven-day Google Calendar agenda, voice notes, dictation,
+  tool activity, approval cards and one-click clipboard capture.
 - **Reach you where you are.** Interactive CLI, one-shot `ask`, HTTP/SSE API,
-  Telegram long-polling, the macOS companion, and optional
-  speech-to-text/text-to-speech.
+  Telegram long-polling, the macOS companion, and speech-to-text/text-to-speech.
 
 ## Requirements
 
 - Node.js **22.5+** (uses the built-in `node:sqlite`; Node 24/26 recommended)
 - npm 10+
-- Optional: Docker, `ffmpeg`/`arecord` for voice, an MCP server for extra tools
+- Optional: Docker, `ffmpeg`/`arecord` for the CLI voice recorder, a working microphone, and an audio-capable OpenAI-compatible endpoint for transcription
 
 No native SQLite build, Python or pnpm is required.
 
@@ -107,9 +111,9 @@ corner of your Mac. It requires the daemon:
 jarvis serve
 ```
 
-Download the latest unsigned DMG from
+Download the latest DMG from
 [Releases](https://github.com/WaxMedusa/JARVIS/releases) — look for
-`JARVIS-Companion-2.0.0-*.dmg` — or build it locally:
+`JARVIS-Companion-*.dmg` — or build it locally:
 
 ```bash
 cd apps/companion
@@ -118,11 +122,16 @@ npm run assets
 npm run dist:mac
 ```
 
-On first open, macOS Gatekeeper may ask you to confirm an unsigned app
-(right-click → Open). The companion never holds the API token in its renderer:
+The companion now includes Notes, Agenda and voice capture as first-class views.
+New release builds are signed with an Apple Developer ID and notarized. The
+currently published 2.0.0 artifacts predate signing and remain unsigned until
+the workflow is re-run with the signing secrets; local builds are unsigned
+unless configured. The companion never holds the API token in its renderer:
 Electron's main process talks to the daemon, and the token is encrypted with
-`safeStorage`. See [apps/companion/README.md](apps/companion/README.md) for the
-full security model, development preview, and release workflow.
+`safeStorage`. Microphone access is limited to the companion window and is used
+only while the user is recording. See
+[apps/companion/README.md](apps/companion/README.md) for the full security
+model, development preview, and signed-release setup.
 
 ## Choosing a model
 
@@ -172,6 +181,7 @@ A fully commented example lives in
 | Conversations | Full transcripts, FTS5 search, and rolling summaries for long threads. |
 | Documents | Files and Obsidian vaults chunked, embedded and indexed for RAG. |
 | Entities/relations | Schema support for a personal graph; exposed through memory search rather than a separate UI. |
+| Notes | Durable user-authored notes with FTS5 search, tags, pin/archive, clipboard capture and one local audio attachment. |
 | Tasks | One-off reminders and recurring tasks with a small, explicit recurrence grammar. |
 
 Recall combines SQLite FTS5 (BM25), optional vector cosine similarity, recency,
@@ -200,13 +210,53 @@ jarvis task add "Renew passport" --due 2026-11-10T09:00:00+01:00 --priority 1
 jarvis task list
 jarvis task done <id>
 
+jarvis note add "Maya is waiting on the cabin dates" --title "Cabin" --tags personal,travel
+jarvis note list
+jarvis note search cabin
+jarvis note show <id>
+jarvis note pin <id>
+jarvis note record --seconds 30
+
 jarvis index ~/Notes
 jarvis index ~/JarvisVault --remove-missing
 ```
 
 Inside `jarvis chat`, slash commands include `/help`, `/remember <text>`,
-`/memories [query]`, `/profile`, `/tasks`, `/conversations`, `/resume <id>`,
-`/new`, `/auto on|off`, `/status`, `/tools`, `/integrations` and `/model`.
+`/memories [query]`, `/notes [query]`, `/note <text>`, `/profile`, `/tasks`,
+`/conversations`, `/resume <id>`, `/new`, `/auto on|off`, `/status`, `/tools`,
+`/integrations` and `/model`.
+
+## Notes, dictation and voice notes
+
+Notes live in SQLite, not in a model context window. Every note has a title,
+free-form content, normalized tags, pin/archive state, a source and an optional
+local audio recording. Notes are indexed with FTS5 and exposed to the agent as
+`notes_create`, `notes_search`, `notes_get`, `notes_update`, `notes_append` and
+`notes_delete`.
+
+The macOS companion has a Notes tab with search, tag chips, pinned notes and an
+archive filter. The microphone button in the composer dictates into the current
+message; the Notes tab records a memo, uploads it to the local daemon, preserves
+the original audio and creates a transcript note. When a real small model is
+available, the daemon adds a title, summary, action items and tags; otherwise it
+still stores the full transcript. Recording audio never leaves your daemon
+except for the configured transcription endpoint.
+
+```bash
+jarvis note add "A thought worth keeping" --tags ideas
+jarvis note search "thought"
+jarvis note record --title "Morning memo" --seconds 30
+jarvis note archive <id>
+```
+
+Voice settings:
+
+```dotenv
+STT_MODEL=whisper-1
+STT_LANGUAGE=            # optional language hint; auto-detect when empty
+JARVIS_MAX_AUDIO_MB=25
+JARVIS_AUDIO_NOTE_SUMMARY=true
+```
 
 ## Integrations
 
@@ -226,7 +276,7 @@ Every integration is optional and is skipped cleanly when unconfigured.
 | Web search | Tavily, Brave or SearXNG; best-effort keyless fallback | `TAVILY_API_KEY`, `BRAVE_SEARCH_API_KEY` or `SEARXNG_URL` |
 | Weather | Current conditions and forecasts (no key) | — |
 | Telegram | Chat with JARVIS from your phone | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_CHAT_IDS` |
-| Voice | Speech-to-text and spoken replies | `JARVIS_VOICE=true`, an OpenAI-compatible audio endpoint, `ffmpeg`/`arecord`, and a player |
+| Voice | Dictation, audio-to-note transcription and spoken replies | An OpenAI-compatible audio endpoint (`OPENAI_API_KEY` or `LLM_API_KEY`); `ffmpeg`/`arecord` is only needed for CLI recording and playback |
 
 MCP example:
 
@@ -282,8 +332,16 @@ approval, an `approval_required` event carries an id; approve it with
 `POST /v1/approvals/:id` and `{"approved":true}`.
 
 Main routes: `/health`, `/v1/status`, `/v1/chat`, `/v1/approvals`,
-`/v1/conversations`, `/v1/memory`, `/v1/profile`, `/v1/tasks`,
-`/v1/integrations`, `/v1/tools`, `/v1/audit`, `/v1/index`, `/v1/sync`.
+`/v1/conversations`, `/v1/memory`, `/v1/profile`, `/v1/tasks`, `/v1/notes`,
+`/v1/notes/audio`, `/v1/audio/transcribe`, `/v1/calendar`,
+`/v1/calendar/events`, `/v1/integrations`, `/v1/tools`, `/v1/audit`,
+`/v1/index`, `/v1/sync`.
+
+Notes are available over JSON (`GET/POST/PATCH/DELETE /v1/notes`), audio
+attachments can be streamed from `GET /v1/notes/:id/audio`, and voice notes use
+a multipart upload with a `file` field plus optional `title`, `tags`,
+`duration_seconds` and `summarize`. `/v1/calendar` returns a setup state instead
+of failing when Google is not connected.
 
 Security rules for the API:
 
@@ -357,6 +415,7 @@ that volume. Back it up as a unit.
 | `jarvis memory ...` | list / search / add / forget / pin |
 | `jarvis profile ...` | list / set / history / delete |
 | `jarvis task ...` | add / list / done / cancel / delete |
+| `jarvis note ...` | list / search / add / show / record / pin / archive / delete |
 | `jarvis index <path>` | Index files or folders for RAG |
 | `jarvis integrations` | Show integration status and setup hints |
 | `jarvis audit [--verify]` | Inspect or verify the audit chain |
@@ -405,10 +464,12 @@ npm run build
 ```
 
 Tests cover memory/profile versioning, hybrid recall, recency/access/diversity
-ranking, the path jail and symlink escapes, shell and SSRF policy,
-cron/recurrence, document chunking, the tool registry's validation/approval
-flow, and the agent loop including loop detection. The companion has its own
-`node:test` suite for SSE framing, the daemon client and settings validation.
+ranking, notes/FTS/tags/archive, audio-to-note persistence, the HTTP API, the
+path jail and symlink escapes, shell and SSRF policy, cron/recurrence, document
+chunking, the tool registry's validation/approval flow, and the agent loop
+including loop detection. The companion has its own `node:test` suite for SSE
+framing, the daemon client (including notes, calendar and multipart audio) and
+settings validation.
 No network or API keys are needed:
 
 ```bash
@@ -422,8 +483,9 @@ Project layout:
 src/
   cli/          commander commands, storage shortcuts, terminal rendering
   agent/        system prompt, context builder, multi-step loop, sub-agent
-  memory/       memories, profile, conversations, tasks, documents, consolidation
-  tools/        registry + 47 tools
+  memory/       memories, notes, profile, conversations, tasks, documents, consolidation
+  notes/        audio-to-note orchestration and structured transcript capture
+  tools/        registry + 53 tools
   integrations/ Google, Notion, GitHub, Linear, HA, email, RSS, Supabase, MCP
   security/     policy, encrypted secrets, audit chain
   llm/          OpenAI-compatible, Anthropic, embeddings, mock
@@ -449,11 +511,16 @@ scoring, persistence and extension points.
   can rewrite the whole database can rebuild the chain.
 - Live provider, OAuth, Telegram and Supabase paths need real credentials;
   they are not exercised by the offline test suite.
-- Voice needs external audio tools and an audio-capable model endpoint.
+- Voice needs a microphone and an audio-capable OpenAI-compatible model
+  endpoint. The companion records through Electron's microphone permission;
+  the CLI recorder additionally needs `ffmpeg`/`arecord` and a player.
+- Live Google Calendar, transcription and signed builds need real credentials;
+  they are not exercised by the offline suite. The companion preview uses a
+  simulated bridge.
 - MCP servers are arbitrary programs and inherit your permissions.
-- The macOS companion is unsigned and not notarized. Gatekeeper requires a
-  right-click → Open on first launch. Signing needs an Apple Developer account
-  and signing secrets in the release workflow.
+- Signed and notarized macOS releases need an Apple Developer account and five
+  repository secrets. The release workflow fails closed instead of publishing
+  unsigned artifacts when they are absent.
 
 ## License
 

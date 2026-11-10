@@ -17,13 +17,14 @@ class JarvisClient {
   }
 
   async request(path, options = {}) {
+    const {timeoutMs = this.timeoutMs, ...fetchOptions} = options;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), Number(timeoutMs) || this.timeoutMs);
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
-        ...options,
-        headers: this.headers(options.headers || {}),
-        signal: options.signal || controller.signal,
+        ...fetchOptions,
+        headers: this.headers(fetchOptions.headers || {}),
+        signal: fetchOptions.signal || controller.signal,
       });
       const text = await response.text();
       if (!response.ok) throw new Error(extractError(text, response.status));
@@ -78,6 +79,90 @@ class JarvisClient {
     });
   }
 
+  async notes(options = {}) {
+    const params = new URLSearchParams();
+    if (options.query) params.set('query', String(options.query));
+    if (options.tag) params.set('tag', String(options.tag));
+    if (options.archived) params.set('archived', 'true');
+    if (options.limit) params.set('limit', String(options.limit));
+    if (options.offset) params.set('offset', String(options.offset));
+    const suffix = params.toString() ? `?${params}` : '';
+    return this.request(`/v1/notes${suffix}`);
+  }
+
+  async note(id) {
+    const result = await this.request(`/v1/notes/${encodeURIComponent(id)}`);
+    return result.note;
+  }
+
+  async createNote(note = {}) {
+    const result = await this.request('/v1/notes', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({
+        title: note.title,
+        content: note.content,
+        tags: note.tags,
+        pinned: Boolean(note.pinned),
+        source: note.source || 'companion',
+      }),
+    });
+    return result.note;
+  }
+
+  async updateNote(id, patch = {}) {
+    const result = await this.request(`/v1/notes/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(patch),
+    });
+    return result.note;
+  }
+
+  async deleteNote(id) {
+    return this.request(`/v1/notes/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  }
+
+  async calendar(days = 7) {
+    return this.request(`/v1/calendar?days=${encodeURIComponent(days)}`, {timeoutMs: 45_000});
+  }
+
+  async createCalendarEvent(event = {}) {
+    const result = await this.request('/v1/calendar/events', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(event),
+      timeoutMs: 45_000,
+    });
+    return result.event;
+  }
+
+  async transcribeAudio({data, mime = 'audio/webm', filename = 'voice-note.webm'} = {}) {
+    const form = new FormData();
+    form.append('file', audioBlob(data, mime), filename);
+    const result = await this.request('/v1/audio/transcribe', {
+      method: 'POST',
+      body: form,
+      timeoutMs: 180_000,
+    });
+    return String(result.transcript || result.text || '');
+  }
+
+  async createAudioNote({data, mime = 'audio/webm', filename = 'voice-note.webm', title, tags, durationSeconds, summarize = true} = {}) {
+    const form = new FormData();
+    form.append('file', audioBlob(data, mime), filename);
+    if (title) form.append('title', String(title));
+    if (tags) form.append('tags', Array.isArray(tags) ? JSON.stringify(tags) : String(tags));
+    if (Number.isFinite(Number(durationSeconds))) form.append('duration_seconds', String(durationSeconds));
+    form.append('summarize', summarize ? 'true' : 'false');
+    const result = await this.request('/v1/notes/audio', {
+      method: 'POST',
+      body: form,
+      timeoutMs: 240_000,
+    });
+    return result;
+  }
+
   /**
    * Stream one chat turn. onEvent receives flattened SSE payloads such as
    * {type:'text', text:'...'} and {type:'done', ...}. Resolves when the stream
@@ -129,6 +214,13 @@ class JarvisClient {
       reader.releaseLock();
     }
   }
+}
+
+function audioBlob(data, mime) {
+  if (data instanceof ArrayBuffer) return new Blob([new Uint8Array(data)], {type: mime});
+  if (ArrayBuffer.isView(data)) return new Blob([new Uint8Array(data.buffer, data.byteOffset, data.byteLength)], {type: mime});
+  if (typeof data === 'string') return new Blob([Buffer.from(data, 'base64')], {type: mime});
+  throw new Error('Audio data is required.');
 }
 
 function extractError(text, status) {

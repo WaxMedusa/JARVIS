@@ -36,14 +36,14 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
-      "identity": null,
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "target": ["dmg", "zip"],
       "extendInfo": {
         "LSUIElement": true,
         "LSMinimumSystemVersion": "11.0",
-        "NSHighResolutionCapable": true
+        "NSHighResolutionCapable": true,
+        "NSMicrophoneUsageDescription": "JARVIS uses the microphone only when you dictate a message or record a voice note."
       }
     },
     "dmg": {

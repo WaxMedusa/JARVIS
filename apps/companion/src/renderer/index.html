@@ -41,6 +41,21 @@
       <span class="offline-action">Settings →</span>
     </button>
 
+    <nav class="modes" id="modes" aria-label="Primary views">
+      <button type="button" class="mode active" data-view="chat" aria-selected="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9H9l-4 3v-12Z"/><path d="M8.5 10h7M8.5 12.8h4.5"/></svg>
+        <span>Chat</span>
+      </button>
+      <button type="button" class="mode" data-view="notes" aria-selected="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h9l3 3v12H6z"/><path d="M9 9h6M9 12.5h6M9 16h4"/></svg>
+        <span>Notes</span>
+      </button>
+      <button type="button" class="mode" data-view="agenda" aria-selected="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="6" width="15" height="13.5" rx="2"/><path d="M8 4v4M16 4v4M4.5 10h15M8 13.5h3M8 16.5h6"/></svg>
+        <span>Agenda</span>
+      </button>
+    </nav>
+
     <main class="thread" id="thread-scroll">
       <section class="empty" id="empty-state">
         <div class="halo" aria-hidden="true">
@@ -73,6 +88,66 @@
       <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
     </main>
 
+    <section class="panel-view hidden" id="notes-view" aria-label="Notes">
+      <div class="view-head">
+        <div>
+          <p class="eyebrow">Second brain</p>
+          <h2>Notes</h2>
+          <p class="view-sub" id="notes-count">Loading…</p>
+        </div>
+        <div class="view-actions">
+          <button type="button" class="icon-btn archive-toggle" id="notes-archive-toggle" aria-label="Show archived notes" aria-pressed="false" title="Show archived notes">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15v12.5h-15z"/><path d="M4.5 7 6.5 4.5h11L19.5 7M9.5 11h5M9.5 14.5h5"/></svg>
+          </button>
+          <button type="button" class="round-btn" id="record-note-btn" aria-label="Record a voice note" aria-pressed="false" title="Record a voice note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
+          </button>
+          <button type="button" class="round-btn solid" id="new-note-btn" aria-label="New note" title="New note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="search-row">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg>
+        <input id="notes-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search notes and transcripts…" aria-label="Search notes">
+        <button type="button" class="search-clear hidden" id="notes-clear" aria-label="Clear search">×</button>
+      </div>
+      <div class="recording-card hidden" id="note-recording" aria-live="polite">
+        <span class="record-pulse" aria-hidden="true"></span>
+        <div class="recording-copy">
+          <strong id="record-title">Listening…</strong>
+          <span id="record-timer">0:00</span>
+        </div>
+        <button type="button" class="ghost tiny" id="record-cancel">Cancel</button>
+        <button type="button" class="primary small" id="record-stop">Stop &amp; note</button>
+      </div>
+      <div class="notes-list" id="notes-list">
+        <div class="view-loading"><span class="tool-spinner"></span> Reading your notes…</div>
+      </div>
+    </section>
+
+    <section class="panel-view hidden" id="agenda-view" aria-label="Agenda">
+      <div class="view-head">
+        <div>
+          <p class="eyebrow">The shape of time</p>
+          <h2>Agenda</h2>
+          <p class="view-sub" id="agenda-sub">Your next seven days</p>
+        </div>
+        <div class="view-actions">
+          <button type="button" class="icon-btn" id="agenda-refresh" aria-label="Refresh calendar" title="Refresh calendar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8.5A7.5 7.5 0 1 0 19.2 14"/><path d="M19 4.5v4h-4"/></svg>
+          </button>
+          <button type="button" class="round-btn solid" id="new-event-btn" aria-label="New calendar event" title="New event">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="agenda-status hidden" id="agenda-status"></div>
+      <div class="agenda-list" id="agenda-list">
+        <div class="view-loading"><span class="tool-spinner"></span> Checking your calendar…</div>
+      </div>
+    </section>
+
     <section class="approval hidden" id="approval-card" aria-live="assertive">
       <div class="approval-head">
         <span class="approval-shield" aria-hidden="true">!</span>
@@ -91,6 +166,9 @@
     <form class="composer" id="composer" autocomplete="off">
       <div class="composer-inner">
         <textarea id="input" rows="1" maxlength="32000" placeholder="Ask JARVIS anything…" aria-label="Message JARVIS"></textarea>
+        <button type="button" class="mic-btn" id="mic-btn" aria-label="Dictate a message" aria-pressed="false" title="Dictate">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
+        </button>
         <button type="submit" class="send-btn" id="send-btn" aria-label="Send message" title="Send">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V7M7.5 11.5 12 7l4.5 4.5"/></svg>
         </button>
@@ -176,6 +254,86 @@
       </button>
       <div id="history-list" class="history-list"><p class="dim">Loading…</p></div>
     </div>
+  </section>
+
+  <section class="sheet hidden" id="note-sheet" aria-label="Note editor" aria-modal="true" role="dialog">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow" id="note-kicker">Capture</p>
+        <h2 id="note-sheet-heading">New note</h2>
+      </div>
+      <button type="button" class="icon-btn" id="note-close" aria-label="Close note editor">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <form id="note-form" class="sheet-body note-form">
+      <label class="field">
+        <span>Title</span>
+        <input id="note-title" type="text" maxlength="200" placeholder="A clear, short title" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Tags</span>
+        <input id="note-tags" type="text" maxlength="600" placeholder="work, ideas, follow-up" autocomplete="off">
+      </label>
+      <label class="field note-content-field">
+        <span>Note</span>
+        <textarea id="note-content" maxlength="100000" placeholder="Write freely. JARVIS can search every word later."></textarea>
+      </label>
+      <div class="note-form-meta">
+        <span id="note-source">New note</span>
+        <span id="note-audio-meta"></span>
+        <span id="note-updated"></span>
+      </div>
+      <div class="settings-result hidden" id="note-result"></div>
+      <div class="note-actions">
+        <button type="button" class="ghost tiny" id="note-pin">Pin</button>
+        <button type="button" class="ghost tiny" id="note-archive">Archive</button>
+        <button type="button" class="ghost tiny danger-text" id="note-delete">Delete</button>
+        <button type="button" class="ghost tiny" id="note-calendar">Add to calendar</button>
+        <button type="submit" class="primary small" id="note-save">Save note</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="sheet hidden" id="event-sheet" aria-label="New calendar event" aria-modal="true" role="dialog">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow">Google Calendar</p>
+        <h2>New event</h2>
+      </div>
+      <button type="button" class="icon-btn" id="event-close" aria-label="Close event editor">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <form id="event-form" class="sheet-body event-form">
+      <label class="field">
+        <span>Title</span>
+        <input id="event-title" type="text" maxlength="300" required placeholder="What is happening?" autocomplete="off">
+      </label>
+      <div class="field-split">
+        <label class="field">
+          <span>Starts</span>
+          <input id="event-start" type="datetime-local" required>
+        </label>
+        <label class="field">
+          <span>Ends</span>
+          <input id="event-end" type="datetime-local" required>
+        </label>
+      </div>
+      <label class="field">
+        <span>Location</span>
+        <input id="event-location" type="text" maxlength="500" placeholder="Optional" autocomplete="off">
+      </label>
+      <label class="field">
+        <span>Notes</span>
+        <textarea id="event-description" maxlength="8000" placeholder="Optional context for the event"></textarea>
+      </label>
+      <div class="settings-result hidden" id="event-result"></div>
+      <div class="sheet-actions">
+        <button type="button" class="ghost" id="event-cancel">Cancel</button>
+        <button type="submit" class="primary" id="event-save">Create event</button>
+      </div>
+    </form>
   </section>
 
   <div class="toast hidden" id="toast" role="status"></div>

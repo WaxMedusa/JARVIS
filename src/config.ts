@@ -193,6 +193,9 @@ const ConfigSchema = z.object({
     ttsModel: z.string().default('tts-1'),
     ttsVoice: z.string().default('onyx'),
     recordSeconds: z.number().int().min(1).max(120).default(8),
+    language: z.string().default(''),
+    maxAudioBytes: z.number().int().min(1_000_000).max(100 * 1024 * 1024).default(25 * 1024 * 1024),
+    autoNoteSummary: z.boolean().default(true),
   }),
   logging: z.object({
     level: z.enum(['debug', 'info', 'warn', 'error', 'silent']).default('info'),
@@ -418,6 +421,9 @@ function defaults(env: NodeJS.ProcessEnv, home: string): JarvisConfigData {
       ttsModel: env.TTS_MODEL?.trim() || 'tts-1',
       ttsVoice: env.TTS_VOICE?.trim() || 'onyx',
       recordSeconds: 8,
+      language: env.STT_LANGUAGE?.trim() || '',
+      maxAudioBytes: envInt(env.JARVIS_MAX_AUDIO_MB) ? Math.max(1, envInt(env.JARVIS_MAX_AUDIO_MB)!) * 1024 * 1024 : 25 * 1024 * 1024,
+      autoNoteSummary: envBool(env.JARVIS_AUDIO_NOTE_SUMMARY) ?? true,
     },
     logging: {
       level: (env.JARVIS_LOG_LEVEL as JarvisConfigData['logging']['level']) || 'info',

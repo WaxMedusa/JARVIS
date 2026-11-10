@@ -15,6 +15,91 @@
   let memoryCount = 128;
   let conversationId = 'conv_preview';
   let cancelled = false;
+  let notes = [
+    {
+      id: 'note_preview_1',
+      title: 'Cabin weekend — what matters',
+      content: 'Maya is waiting on a decision about the cabin. The dates are 21–23 November. Keep Friday afternoon free for the drive; the conference can be a Saturday morning call instead.\n\nBook the train, then send Maya the arrival time.',
+      summary: 'Cabin trip 21–23 November. Protect Friday afternoon and confirm with Maya.',
+      tags: ['personal', 'travel'],
+      source: 'companion',
+      audio_path: null,
+      audio_mime: null,
+      duration_seconds: null,
+      pinned: true,
+      archived: false,
+      created_at: new Date(Date.now() - 5_400_000).toISOString(),
+      updated_at: new Date(Date.now() - 1_800_000).toISOString(),
+    },
+    {
+      id: 'note_preview_2',
+      title: 'Board deck narrative',
+      content: 'The deck needs a cleaner through-line: the market shift, the product bet, the proof, then the ask. Two blank slides remain: competitive landscape and the three-year model. Ask Priya for the retention chart before Thursday.',
+      summary: null,
+      tags: ['work', 'board'],
+      source: 'audio',
+      audio_path: 'note_preview_2.webm',
+      audio_mime: 'audio/webm',
+      duration_seconds: 42,
+      pinned: false,
+      archived: false,
+      created_at: new Date(Date.now() - 19_800_000).toISOString(),
+      updated_at: new Date(Date.now() - 19_800_000).toISOString(),
+    },
+    {
+      id: 'note_preview_3',
+      title: 'Espresso dial-in',
+      content: '18g in, 36g out, 27 seconds. Slightly brighter than last week; keep the temperature at 93°C and grind one notch finer tomorrow.',
+      summary: null,
+      tags: ['home', 'coffee'],
+      source: 'manual',
+      audio_path: null,
+      audio_mime: null,
+      duration_seconds: null,
+      pinned: false,
+      archived: false,
+      created_at: new Date(Date.now() - 86_400_000).toISOString(),
+      updated_at: new Date(Date.now() - 86_400_000).toISOString(),
+    },
+    {
+      id: 'note_preview_4',
+      title: 'Old passport checklist',
+      content: 'Renewed in September. The old checklist is kept only for the visa history.',
+      summary: null,
+      tags: ['admin'],
+      source: 'clipboard',
+      audio_path: null,
+      audio_mime: null,
+      duration_seconds: null,
+      pinned: false,
+      archived: true,
+      created_at: new Date(Date.now() - 604_800_000).toISOString(),
+      updated_at: new Date(Date.now() - 604_800_000).toISOString(),
+    },
+  ];
+  const event = (dayOffset, hour, minute, durationMinutes, summary, location, attendees) => {
+    const start = new Date();
+    start.setDate(start.getDate() + dayOffset);
+    start.setHours(hour, minute, 0, 0);
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    return {
+      id: `evt_${dayOffset}_${hour}_${minute}`,
+      summary,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      location,
+      htmlLink: 'https://calendar.google.com/',
+      attendees: attendees || [],
+    };
+  };
+  let calendarEvents = [
+    event(0, 9, 30, 45, 'Product review', 'Studio · 3rd floor', ['Priya', 'Tom']),
+    event(0, 13, 0, 60, 'Lunch with Maya', 'Café Krokodil', ['Maya']),
+    event(1, 10, 0, 30, 'Board deck working session', 'Study', []),
+    event(1, 16, 0, 45, 'Design critique', 'Studio', ['Lena', 'Tom', 'Priya']),
+    event(2, 8, 30, 30, 'Dentist', 'Mitte', []),
+    event(4, 14, 0, 90, 'Quarterly planning', 'Studio · main room', ['Priya', 'Lena', 'Tom']),
+  ];
   let settings = {
     baseUrl: 'http://127.0.0.1:8765',
     alwaysOnTop: true,
@@ -136,8 +221,8 @@
       version: '2.0.0',
       model: 'mock/preview',
       provider: 'mock',
-      tools: 47,
-      counts: {memories: memoryCount, conversations: 6, openTasks: 4, documents: 12, auditEntries: 241},
+      tools: 53,
+      counts: {memories: memoryCount, conversations: 6, openTasks: 4, documents: 12, auditEntries: 241, notes: notes.filter((note) => !note.archived).length},
       timezone: 'Europe/Berlin',
     }),
     startChat: async ({message}) => {
@@ -174,6 +259,111 @@
       {id: 3, role: 'user', content: 'Move the deck review to Thursday and keep Friday afternoon free.', created_at: new Date(Date.now() - 1800000).toISOString()},
       {id: 4, role: 'assistant', content: 'I have a proposed change ready. Thursday 14:00 is free; Friday after 14:00 stays protected. I will ask before changing the calendar.', created_at: new Date(Date.now() - 1700000).toISOString()},
     ],
+    listNotes: async (options = {}) => {
+      const archived = options.archived === true;
+      const query = String(options.query || '').trim().toLowerCase();
+      const filtered = notes.filter((note) => {
+        if (Boolean(note.archived) !== archived) return false;
+        if (!query) return true;
+        return `${note.title} ${note.content} ${note.tags.join(' ')}`.toLowerCase().includes(query);
+      });
+      const tags = [...new Set(notes.filter((note) => !note.archived).flatMap((note) => note.tags))].sort();
+      return {
+        notes: filtered,
+        tags,
+        stats: {
+          active: notes.filter((note) => !note.archived).length,
+          archived: notes.filter((note) => note.archived).length,
+          withAudio: notes.filter((note) => note.audio_mime).length,
+        },
+        archived,
+      };
+    },
+    getNote: async (id) => {
+      const note = notes.find((item) => item.id === id);
+      if (!note) throw new Error('Note not found.');
+      return note;
+    },
+    createNote: async (input = {}) => {
+      await wait(160);
+      const content = String(input.content || '');
+      const title = String(input.title || '').trim() || content.split(/\r?\n/)[0].slice(0, 80) || 'Untitled note';
+      const note = {
+        id: `note_preview_${Date.now()}`,
+        title,
+        content,
+        summary: null,
+        tags: Array.isArray(input.tags) ? input.tags : String(input.tags || '').split(',').map((tag) => tag.trim()).filter(Boolean),
+        source: input.source || 'companion',
+        audio_path: null,
+        audio_mime: null,
+        duration_seconds: null,
+        pinned: Boolean(input.pinned),
+        archived: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      notes.unshift(note);
+      return note;
+    },
+    updateNote: async (id, patch = {}) => {
+      await wait(120);
+      const index = notes.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error('Note not found.');
+      notes[index] = {...notes[index], ...patch, updated_at: new Date().toISOString()};
+      return notes[index];
+    },
+    deleteNote: async (id) => {
+      notes = notes.filter((note) => note.id !== id);
+      return {ok: true};
+    },
+    getCalendar: async () => {
+      await wait(260);
+      return {
+        available: true,
+        configured: true,
+        authorized: true,
+        timezone: 'Europe/Berlin',
+        events: [...calendarEvents].sort((a, b) => a.start.localeCompare(b.start)),
+      };
+    },
+    createCalendarEvent: async (input = {}) => {
+      await wait(250);
+      const created = {
+        id: `evt_preview_${Date.now()}`,
+        summary: input.summary || 'Untitled event',
+        start: input.start,
+        end: input.end,
+        location: input.location,
+        description: input.description,
+        htmlLink: 'https://calendar.google.com/',
+        attendees: [],
+      };
+      calendarEvents.push(created);
+      return created;
+    },
+    transcribeAudio: async () => {
+      await wait(900);
+      return 'Remind me to send the board deck to Maya on Thursday morning, and keep Friday afternoon free for the cabin.';
+    },
+    createAudioNote: async (payload = {}) => {
+      await wait(1100);
+      const transcript = 'Remind me to send the board deck to Maya on Thursday morning, and keep Friday afternoon free for the cabin.';
+      const note = await api.createNote({
+        title: 'Voice memo — board deck and cabin',
+        content: `${transcript}\n\nAction items:\n- [ ] Send the board deck to Maya on Thursday morning\n- [ ] Keep Friday afternoon free for the cabin`,
+        tags: ['work', 'personal'],
+        source: 'audio',
+      });
+      note.audio_mime = payload.mime || 'audio/webm';
+      note.audio_path = `${note.id}.webm`;
+      note.duration_seconds = payload.durationSeconds || 18;
+      return {note, transcript, structured: true};
+    },
+    captureClipboardNote: async () => {
+      const note = await api.createNote({title: 'Clipboard note', content: 'Captured from the clipboard in preview mode.', source: 'clipboard'});
+      return {ok: true, id: note.id, title: note.title};
+    },
     hide: async () => undefined,
     quit: async () => undefined,
     openExternal: async () => ({ok: true}),

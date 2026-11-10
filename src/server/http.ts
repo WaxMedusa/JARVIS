@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import {Hono} from 'hono';
+import {Hono, type Context} from 'hono';
+import {isSupportedAudioMime, normalizeAudioMime} from '../memory/notes.js';
 import {serve, type ServerType} from '@hono/node-server';
 import type {App} from '../core/app.js';
 import {JarvisError, errorMessage} from '../core/errors.js';
@@ -45,7 +46,9 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
 
   hono.use('/v1/*', async (c, next) => {
     const length = Number(c.req.header('content-length') ?? 0);
-    if (length > app.config.server.maxBodyBytes) return c.json({error: 'request body too large'}, 413);
+    const audioUpload = c.req.path === '/v1/audio/transcribe' || c.req.path === '/v1/notes/audio';
+    const limit = audioUpload ? app.config.voice.maxAudioBytes + 1024 * 1024 : app.config.server.maxBodyBytes;
+    if (length > limit) return c.json({error: audioUpload ? 'audio upload is too large' : 'request body too large'}, 413);
     const start = Date.now();
     await next();
     getLogger().debug('http request', {method: c.req.method, path: c.req.path, status: c.res.status, ms: Date.now() - start});
@@ -67,6 +70,9 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
         openTasks: app.tasks.list({status: 'open', limit: 500}).length,
         auditEntries: app.audit.count(),
         documents: app.documents.stats(),
+        notes: app.notes.count(),
+        archivedNotes: app.notes.count({archived: true}),
+        audioNotes: app.notes.stats().withAudio,
       },
       tools: app.registry.count(),
       integrations: app.integrations.status(),
@@ -238,6 +244,187 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
   });
   hono.delete('/v1/tasks/:id', (c) => (app.tasks.delete(c.req.param('id')) ? c.json({ok: true}) : c.json({error: 'task not found'}, 404)));
 
+  /* ------------------------------- Notes -------------------------------- */
+
+  hono.get('/v1/notes', (c) => {
+    const archived = c.req.query('archived') === 'true' || c.req.query('archived') === '1';
+    const notes = app.notes.list({
+      query: c.req.query('query') || undefined,
+      tag: c.req.query('tag') || undefined,
+      archived,
+      limit: Number(c.req.query('limit') ?? 100),
+      offset: Number(c.req.query('offset') ?? 0),
+    });
+    return c.json({notes, tags: app.notes.tags(), stats: app.notes.stats(), archived});
+  });
+
+  hono.get('/v1/notes/tags', (c) => c.json({tags: app.notes.tags()}));
+
+  hono.post('/v1/notes', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const content = typeof body.content === 'string' ? body.content : '';
+    const title = typeof body.title === 'string' ? body.title : undefined;
+    if (!content.trim() && !title?.trim()) return c.json({error: 'title or content is required'}, 400);
+    try {
+      const note = app.notes.create({
+        title,
+        content,
+        tags: body.tags as string[] | string | undefined,
+        pinned: body.pinned === true,
+        source: typeof body.source === 'string' ? body.source : 'api',
+      });
+      return c.json({note}, 201);
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, 400);
+    }
+  });
+
+  hono.post('/v1/notes/audio', async (c) => {
+    const upload = await readAudioUpload(c, app.config.voice.maxAudioBytes);
+    if ('error' in upload) return c.json({error: upload.error}, upload.status);
+    try {
+      const result = await app.audioNotes.createFromAudio({
+        buffer: upload.buffer,
+        mime: upload.mime,
+        filename: upload.filename,
+        title: upload.fields.title,
+        tags: upload.fields.tags,
+        durationSeconds: upload.fields.duration_seconds ? Number(upload.fields.duration_seconds) : null,
+        summarize: upload.fields.summarize !== 'false',
+      });
+      return c.json(result, 201);
+    } catch (error) {
+      throw error;
+    }
+  });
+
+  hono.post('/v1/audio/transcribe', async (c) => {
+    const upload = await readAudioUpload(c, app.config.voice.maxAudioBytes);
+    if ('error' in upload) return c.json({error: upload.error}, upload.status);
+    const transcript = await app.voice.transcribeBuffer(upload.buffer, {mime: upload.mime, filename: upload.filename});
+    return c.json({transcript, text: transcript, chars: transcript.length});
+  });
+
+  hono.get('/v1/notes/:id/audio', async (c) => {
+    const note = app.notes.get(c.req.param('id'));
+    if (!note) return c.json({error: 'note not found'}, 404);
+    if (!note.audio_path) return c.json({error: 'this note has no audio attachment'}, 404);
+    try {
+      const audio = await app.notes.readAudio(note);
+      c.header('content-type', audio.mime);
+      c.header('content-length', String(audio.data.length));
+      c.header('cache-control', 'private, no-store');
+      return c.body(new Uint8Array(audio.data));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return c.json({error: 'audio attachment is missing'}, 404);
+      throw error;
+    }
+  });
+
+  hono.get('/v1/notes/:id', (c) => {
+    const note = app.notes.get(c.req.param('id'));
+    return note ? c.json({note}) : c.json({error: 'note not found'}, 404);
+  });
+
+  hono.patch('/v1/notes/:id', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      const note = app.notes.update(c.req.param('id'), {
+        title: typeof body.title === 'string' ? body.title : undefined,
+        content: typeof body.content === 'string' ? body.content : undefined,
+        summary: body.summary === null ? null : typeof body.summary === 'string' ? body.summary : undefined,
+        tags: body.tags as string[] | string | undefined,
+        pinned: typeof body.pinned === 'boolean' ? body.pinned : undefined,
+        archived: typeof body.archived === 'boolean' ? body.archived : undefined,
+      });
+      return note ? c.json({note}) : c.json({error: 'note not found'}, 404);
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, 400);
+    }
+  });
+
+  hono.delete('/v1/notes/:id', async (c) => {
+    const deleted = await app.notes.delete(c.req.param('id'));
+    return deleted ? c.json({ok: true}) : c.json({error: 'note not found'}, 404);
+  });
+
+  /* ------------------------------ Calendar ------------------------------ */
+
+  hono.get('/v1/calendar', async (c) => {
+    const google = app.integrations.services.google;
+    if (!google) {
+      return c.json({
+        available: false,
+        configured: false,
+        authorized: false,
+        events: [],
+        timezone: app.config.assistant.timezone,
+        message: 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then run `jarvis auth google`.',
+      });
+    }
+    if (!google.isAuthorized()) {
+      return c.json({
+        available: true,
+        configured: true,
+        authorized: false,
+        events: [],
+        timezone: app.config.assistant.timezone,
+        message: 'Google Calendar is not connected. Run `jarvis auth google` in a terminal.',
+      });
+    }
+    const days = Math.min(Math.max(Number(c.req.query('days') ?? 7) || 7, 1), 60);
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setDate(to.getDate() + days);
+    try {
+      const events = await google.listEvents({timeMin: from.toISOString(), timeMax: to.toISOString(), maxResults: 250});
+      return c.json({
+        available: true,
+        configured: true,
+        authorized: true,
+        days,
+        timezone: app.config.assistant.timezone,
+        calendarId: app.config.integrations.google.calendarId,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        events,
+      });
+    } catch (error) {
+      return c.json({error: errorMessage(error), available: true, configured: true, authorized: false, events: []}, 502);
+    }
+  });
+
+  hono.post('/v1/calendar/events', async (c) => {
+    const google = app.integrations.services.google;
+    if (!google) return c.json({error: 'Google Calendar is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.'}, 400);
+    if (!google.isAuthorized()) return c.json({error: 'Google Calendar is not connected. Run `jarvis auth google`.'}, 400);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const summary = typeof body.summary === 'string' ? body.summary.trim() : '';
+    const start = typeof body.start === 'string' ? new Date(body.start) : null;
+    const end = typeof body.end === 'string' ? new Date(body.end) : null;
+    if (!summary) return c.json({error: 'Event title is required.'}, 400);
+    if (summary.length > 300) return c.json({error: 'Event title is too long.'}, 400);
+    if (!start || Number.isNaN(start.getTime()) || !end || Number.isNaN(end.getTime())) return c.json({error: 'Valid start and end times are required.'}, 400);
+    if (end <= start) return c.json({error: 'End time must be after the start time.'}, 400);
+    const attendees = Array.isArray(body.attendees)
+      ? body.attendees.filter((item): item is string => typeof item === 'string' && item.includes('@')).slice(0, 50)
+      : [];
+    try {
+      const event = await google.createEvent({
+        summary,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        description: typeof body.description === 'string' ? body.description.slice(0, 8000) : undefined,
+        location: typeof body.location === 'string' ? body.location.slice(0, 500) : undefined,
+        attendees,
+      });
+      return c.json({event}, 201);
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, 502);
+    }
+  });
+
   hono.get('/v1/integrations', (c) => c.json({integrations: app.integrations.status(), mcp: app.mcp.list()}));
   hono.get('/v1/tools', (c) => c.json({tools: app.registry.list().map(({definition, source, jsonSchema}) => ({name: definition.name, description: definition.description, risk: definition.risk, category: definition.category, source, parameters: jsonSchema}))}));
   hono.get('/v1/audit', (c) => c.json({entries: app.audit.tail(Number(c.req.query('limit') ?? 50))}));
@@ -289,6 +476,60 @@ export function startHttpServer(app: App): HttpServer {
         server.close(() => resolve());
       }),
   };
+}
+
+interface AudioUpload {
+  buffer: Buffer;
+  mime: string;
+  filename: string;
+  fields: Record<string, string>;
+}
+
+async function readAudioUpload(c: Context, maxBytes: number): Promise<AudioUpload | {error: string; status: 400 | 413 | 415}> {
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.parseBody()) as Record<string, unknown>;
+  } catch {
+    return {error: 'expected a multipart/form-data upload', status: 400};
+  }
+  const candidate = body.file;
+  if (!candidate || typeof candidate === 'string' || Array.isArray(candidate)) {
+    return {error: 'file is required', status: 400};
+  }
+  const file = candidate as File;
+  if (typeof file.arrayBuffer !== 'function') return {error: 'file is required', status: 400};
+  if (file.size > maxBytes) {
+    return {error: `Audio exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB limit.`, status: 413};
+  }
+  const mime = normalizeAudioMime(file.type || mimeForFilename(file.name));
+  if (!isSupportedAudioMime(mime)) return {error: `Unsupported audio type: ${file.type || 'unknown'}`, status: 415};
+  const buffer = Buffer.from(await file.arrayBuffer());
+  if (!buffer.length) return {error: 'the recording is empty', status: 400};
+  if (buffer.length > maxBytes) {
+    return {error: `Audio exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB limit.`, status: 413};
+  }
+  const stringField = (name: string): string => (typeof body[name] === 'string' ? (body[name] as string).slice(0, 120_000) : '');
+  return {
+    buffer,
+    mime,
+    filename: file.name || 'voice-note.webm',
+    fields: {
+      title: stringField('title'),
+      tags: stringField('tags'),
+      duration_seconds: stringField('duration_seconds'),
+      summarize: stringField('summarize'),
+    },
+  };
+}
+
+function mimeForFilename(name: string): string {
+  const extension = String(name || '').toLowerCase().split('.').pop() || '';
+  if (extension === 'wav') return 'audio/wav';
+  if (extension === 'mp3') return 'audio/mpeg';
+  if (extension === 'm4a' || extension === 'mp4') return 'audio/mp4';
+  if (extension === 'ogg' || extension === 'opus') return 'audio/ogg';
+  if (extension === 'flac') return 'audio/flac';
+  return 'audio/webm';
 }
 
 function safeEqual(a: string, b: string): boolean {

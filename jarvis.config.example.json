@@ -71,6 +71,15 @@
       ]
     }
   },
+  "voice": {
+    "enabled": false,
+    "sttModel": "whisper-1",
+    "ttsModel": "tts-1",
+    "ttsVoice": "onyx",
+    "language": "",
+    "maxAudioBytes": 26214400,
+    "autoNoteSummary": true
+  },
   "server": {
     "host": "127.0.0.1",
     "port": 8765

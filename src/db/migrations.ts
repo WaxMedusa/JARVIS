@@ -223,6 +223,42 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'notes',
+    sql: `
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        summary TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        source TEXT NOT NULL DEFAULT 'manual',
+        audio_path TEXT,
+        audio_mime TEXT,
+        duration_seconds REAL,
+        pinned INTEGER NOT NULL DEFAULT 0,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(archived, pinned DESC, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_notes_source ON notes(source, updated_at DESC);
+      CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(title, content, summary, tags, tokenize='porter unicode61');
+      CREATE TRIGGER IF NOT EXISTS notes_fts_ai AFTER INSERT ON notes BEGIN
+        INSERT INTO notes_fts(rowid, title, content, summary, tags)
+        VALUES (new.rowid, new.title, new.content, COALESCE(new.summary, ''), new.tags);
+      END;
+      CREATE TRIGGER IF NOT EXISTS notes_fts_ad AFTER DELETE ON notes BEGIN
+        DELETE FROM notes_fts WHERE rowid = old.rowid;
+      END;
+      CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE OF title, content, summary, tags ON notes BEGIN
+        DELETE FROM notes_fts WHERE rowid = old.rowid;
+        INSERT INTO notes_fts(rowid, title, content, summary, tags)
+        VALUES (new.rowid, new.title, new.content, COALESCE(new.summary, ''), new.tags);
+      END;
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

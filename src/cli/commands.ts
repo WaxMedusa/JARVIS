@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import type {Command} from 'commander';
 import pc from 'picocolors';
 import {publicConfig} from '../config.js';
@@ -6,6 +7,7 @@ import {formatInTz} from '../core/time.js';
 import {IntegrationsHub} from '../integrations/index.js';
 import {SupabaseClient} from '../integrations/supabase.js';
 import {VoiceService} from '../voice/index.js';
+import {AudioNoteService} from '../notes/audio.js';
 import {createAppOptions, openStorage, type CliGlobalOptions} from './storage.js';
 import {createApp} from '../core/app.js';
 
@@ -257,6 +259,105 @@ export function registerStorageCommands(program: Command, globals: () => CliGlob
         if (!supabase) throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, and create the tables in docs/supabase.sql.');
         const result = direction === 'pull' ? await supabase.pull() : await supabase.push();
         console.log(JSON.stringify(result, null, 2));
+      } finally {
+        store.shutdown();
+      }
+    });
+
+  program
+    .command('note [action] [values...]')
+    .description('Notes: list | search <query> | add <text> | show <id> | record | pin <id> | archive <id> | delete <id>')
+    .option('--title <title>', 'note title')
+    .option('--tags <tags>', 'comma-separated tags')
+    .option('--limit <n>', 'result limit', '25')
+    .option('--seconds <n>', 'recording length', '30')
+    .option('--off', 'unpin or unarchive')
+    .action(async (action = 'list', values: string[] = [], rawOptions?: unknown) => {
+      const opts = options(rawOptions);
+      const store = openStorage(globals());
+      try {
+        const notes = store.notes;
+        const print = (note: ReturnType<typeof notes.create>) => {
+          const tags = note.tags.length ? ` ${pc.dim(note.tags.map((tag) => `#${tag}`).join(' '))}` : '';
+          const flags = `${note.pinned ? ' pinned' : ''}${note.archived ? ' archived' : ''}${note.audio_path ? ' audio' : ''}`;
+          console.log(`${pc.cyan(note.id)} ${pc.bold(note.title)}${tags}${pc.dim(` · ${note.updated_at.slice(0, 10)}${flags}`)}`);
+          console.log(note.content.replace(/\s+/g, ' ').slice(0, 500));
+        };
+
+        switch (action) {
+          case 'list':
+          case 'search': {
+            const query = action === 'search' ? values.join(' ').trim() : undefined;
+            if (action === 'search' && !query) throw new Error('Usage: jarvis note search <query>');
+            const rows = notes.list({query, limit: Number(opts.limit), archived: false});
+            if (!rows.length) return console.log(pc.dim('No notes found.'));
+            for (const note of rows) print(note);
+            break;
+          }
+          case 'add':
+          case 'create': {
+            const content = values.join(' ').trim();
+            if (!content) throw new Error('Usage: jarvis note add <text> [--title ...] [--tags ...]');
+            const note = notes.create({content, title: opts.title, tags: opts.tags, source: 'cli'});
+            print(note);
+            break;
+          }
+          case 'show': {
+            const id = values[0];
+            if (!id) throw new Error('Usage: jarvis note show <id>');
+            const note = notes.resolve(id);
+            if (!note) return console.log(pc.dim('Note not found.'));
+            print(note);
+            console.log(pc.dim(`tags: ${note.tags.join(', ') || 'none'}${note.audio_path ? ` · audio: ${note.audio_path}` : ''}`));
+            break;
+          }
+          case 'pin':
+          case 'unpin':
+          case 'archive':
+          case 'unarchive': {
+            const id = values[0];
+            if (!id) throw new Error(`Usage: jarvis note ${action} <id>`);
+            const note = notes.resolve(id);
+            if (!note) return console.log(pc.dim('Note not found.'));
+            const changingPin = action.includes('pin');
+            const value = action === 'unpin' || action === 'unarchive' ? false : action.startsWith('un') ? false : opts.off ? false : true;
+            const updated = notes.update(note.id, changingPin ? {pinned: value} : {archived: value});
+            console.log(updated ? `${pc.green('updated')} ${updated.title}` : pc.dim('Note not found.'));
+            break;
+          }
+          case 'delete':
+          case 'rm': {
+            const id = values[0];
+            if (!id) throw new Error('Usage: jarvis note delete <id>');
+            const note = notes.resolve(id);
+            if (!note) return console.log(pc.dim('Note not found.'));
+            const deleted = await notes.delete(note.id);
+            console.log(deleted ? `Deleted ${pc.cyan(note.id)}.` : pc.dim('Note not found.'));
+            break;
+          }
+          case 'record': {
+            const voice = new VoiceService(store.config);
+            const audioNotes = new AudioNoteService({config: store.config, notes, transcriber: voice, llm: null});
+            const file = await voice.record(Number(opts.seconds));
+            const buffer = await fs.readFile(file);
+            const result = await audioNotes.createFromAudio({
+              buffer,
+              mime: 'audio/wav',
+              filename: file.split('/').pop(),
+              title: opts.title,
+              tags: opts.tags,
+              summarize: false,
+            });
+            await fs.rm(file, {force: true});
+            print(result.note);
+            break;
+          }
+          default: {
+            const content = [action, ...values].join(' ').trim();
+            if (!content) throw new Error('Usage: jarvis note [list|search|add|show|record|pin|archive|delete]');
+            print(notes.create({content, title: opts.title, tags: opts.tags, source: 'cli'}));
+          }
+        }
       } finally {
         store.shutdown();
       }
