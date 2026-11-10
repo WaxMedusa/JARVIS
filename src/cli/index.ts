@@ -34,7 +34,7 @@ const program = new Command();
 program
   .name('jarvis')
   .description('JARVIS — a personal AI assistant with long-term memory, tools and integrations')
-  .version('2.0.0')
+  .version('2.1.0')
   .option('--home <path>', 'data directory (default: ~/.jarvis)')
   .option('--config <path>', 'path to jarvis.config.json')
   .option('--no-mcp', 'do not connect configured MCP servers')
@@ -634,7 +634,7 @@ program
   .action(async () => {
     const config = loadCliConfig(globals());
     console.log(
-      JSON.stringify({jarvis: '2.0.0', node: process.version, platform: process.platform, model: config.llm.model, provider: config.llm.provider, home: config.paths.home}, null, 2),
+      JSON.stringify({jarvis: '2.1.0', node: process.version, platform: process.platform, model: config.llm.model, provider: config.llm.provider, home: config.paths.home}, null, 2),
     );
   });
 

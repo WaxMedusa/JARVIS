@@ -45,12 +45,14 @@ holds an API token and never talks to the network directly.
 Download the latest `JARVIS-Companion-*.dmg` from the repository's Releases
 page, open it, and drag JARVIS to Applications.
 
-New release builds are signed and notarized by the workflow; the currently
-published 2.0.0 artifacts predate signing and remain unsigned until the release
-workflow is re-run with the credentials below. The workflow fails before
-building when those credentials are missing, so it cannot silently publish an
-unsigned build as a signed release. Local builds are unsigned unless you
-configure the same credentials.
+Release 2.1.0 is built by the workflow on GitHub macOS runners. When all five
+credentials below are configured, it signs with a Developer ID Application
+certificate, notarizes with Apple and publishes a stable release. When they are
+missing, it still builds and verifies the DMG, but publishes it as an explicitly
+labelled unsigned preview prerelease (`companion-v2.1.0-unsigned`) instead of
+presenting it as a signed release. The 2.0.0 artifacts predate signing and
+remain unsigned. Local builds are unsigned unless you configure the same
+credentials.
 
 ## Local development
 
@@ -96,9 +98,10 @@ notarize them.
 The GitHub workflow `.github/workflows/release-macos.yml` does this on a macOS
 runner and publishes a release when `apps/companion/**` lands on `main` (or when
 run manually). It uses the version in `package.json` as the tag
-`companion-v<version>`. In CI, notarization is mandatory, and the workflow
-verifies the signed app with `codesign`, `xcrun stapler` and `spctl` before
-publishing.
+`companion-v<version>`, appending `-unsigned` when signing secrets are absent.
+With credentials, notarization is mandatory and the workflow verifies the
+signed app with `codesign`, `xcrun stapler` and `spctl` before publishing a
+stable release.
 
 ### Signed release setup
 
@@ -125,8 +128,9 @@ base64 -i DeveloperID.p12 | tr -d '\n' | pbcopy
 Paste the result into `CSC_LINK`. Never commit the certificate, its password, or
 the app-specific password. The workflow passes them to electron-builder only
 for the build step; it uses the Apple notary service and does not upload the
-credentials as artifacts. CI also enables `forceCodeSigning` and mandatory
-notarization, so a missing or invalid certificate stops the build.
+credentials as artifacts. When the five secrets are present, CI also enables
+`forceCodeSigning` and mandatory notarization, so a missing or invalid
+certificate stops the build instead of producing a broken signed release.
 
 ## Security model
 
@@ -151,8 +155,8 @@ notarization, so a missing or invalid certificate stops the build.
 ## Known limitations
 
 - Signed/notarized releases require a paid Apple Developer account and the five
-  repository secrets above. Without them the release workflow fails before
-  building rather than publishing an unsigned release.
+  repository secrets above. Without them the workflow publishes an unsigned
+  preview prerelease (`companion-v<version>-unsigned`) instead.
 - Uses the daemon's HTTP API; it cannot start `jarvis serve` for you.
 - Voice transcription needs an audio-capable OpenAI-compatible endpoint
   configured on the daemon. The companion records audio, but the daemon owns

@@ -161,12 +161,14 @@ approval, path, shell and network controls.
 - Voice audio goes from the renderer to the main process over IPC and then to
   the local daemon. The renderer never receives the daemon API token, and audio
   is sent only to the configured transcription endpoint.
-- Release artifacts built by the workflow are produced on GitHub macOS runners,
-  signed with a Developer ID Application certificate, hardened at runtime, and
-  notarized by Apple. The workflow verifies the signature and stapled ticket
-  before publishing and fails closed when the signing secrets are absent. The
-  published 2.0.0 artifacts predate this gate and should be replaced by a
-  signed rerun.
+- Release artifacts built by the workflow are produced on GitHub macOS runners.
+  With the five Apple secrets configured, the build is signed with a Developer
+  ID Application certificate, hardened at runtime and notarized; the workflow
+  verifies the signature, stapled ticket and Gatekeeper assessment before
+  publishing a stable release. Without them it publishes the verified DMG/ZIP
+  as a prerelease tagged `-unsigned` with installation warnings, so unsigned
+  output is never presented as a signed release. The published 2.0.0 artifacts
+  predate this gate and should be replaced by a signed rerun.
 
 ## Operational checklist
 

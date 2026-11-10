@@ -123,10 +123,13 @@ npm run dist:mac
 ```
 
 The companion now includes Notes, Agenda and voice capture as first-class views.
-New release builds are signed with an Apple Developer ID and notarized. The
-currently published 2.0.0 artifacts predate signing and remain unsigned until
-the workflow is re-run with the signing secrets; local builds are unsigned
-unless configured. The companion never holds the API token in its renderer:
+Release 2.1.0 ships a DMG and ZIP for Intel and Apple silicon. When the five
+Apple secrets are configured the workflow signs with a Developer ID Application
+certificate and notarizes the build; otherwise it publishes a clearly labelled
+unsigned preview prerelease (`companion-v2.1.0-unsigned`) so the app stays
+installable. The 2.0.0 artifacts predate signing and remain unsigned, and local
+builds are unsigned unless configured. The companion never holds the API token
+in its renderer:
 Electron's main process talks to the daemon, and the token is encrypted with
 `safeStorage`. Microphone access is limited to the companion window and is used
 only while the user is recording. See
@@ -519,8 +522,8 @@ scoring, persistence and extension points.
   simulated bridge.
 - MCP servers are arbitrary programs and inherit your permissions.
 - Signed and notarized macOS releases need an Apple Developer account and five
-  repository secrets. The release workflow fails closed instead of publishing
-  unsigned artifacts when they are absent.
+  repository secrets. The release workflow publishes a labelled unsigned
+  preview prerelease when they are absent, and never presents it as signed.
 
 ## License
 

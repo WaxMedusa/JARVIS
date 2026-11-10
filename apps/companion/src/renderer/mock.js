@@ -107,7 +107,7 @@
     showOnLaunch: true,
     hotkey: 'CommandOrControl+Shift+J',
     hasToken: false,
-    version: '2.0.0',
+    version: '2.1.0',
     platform: 'darwin',
     hotkeyActive: true,
   };
@@ -218,7 +218,7 @@
     },
     testConnection: async () => ({
       name: 'JARVIS',
-      version: '2.0.0',
+      version: '2.1.0',
       model: 'mock/preview',
       provider: 'mock',
       tools: 53,

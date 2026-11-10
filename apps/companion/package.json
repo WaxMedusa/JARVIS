@@ -1,6 +1,6 @@
 {
   "name": "jarvis-companion",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "JARVIS — an always-on macOS companion for your personal AI chief-of-staff",
   "author": "WaxMedusa",
@@ -38,7 +38,10 @@
       "icon": "build/icon.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "extendInfo": {
         "LSUIElement": true,
         "LSMinimumSystemVersion": "11.0",
@@ -53,8 +56,17 @@
         "height": 380
       },
       "contents": [
-        {"x": 150, "y": 190, "type": "file"},
-        {"x": 390, "y": 190, "type": "link", "path": "/Applications"}
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }
