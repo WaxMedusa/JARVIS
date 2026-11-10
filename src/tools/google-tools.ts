@@ -9,7 +9,7 @@ function google(ctx: ToolContext): GoogleService {
     throw new Error('Google integration is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then run `jarvis auth google`.');
   }
   if (!service.isAuthorized()) {
-    throw new Error('Google is not authorized yet. Run `jarvis auth google` to connect Calendar, Gmail and Tasks.');
+    throw new Error('Google is not authorized yet. Connect it in JARVIS settings, or run `jarvis auth google`.');
   }
   return service;
 }
@@ -35,23 +35,45 @@ export const googleTools = [
     }),
     async handler(args, ctx) {
       const now = Date.now();
-      const events = await google(ctx).listEvents({
-        timeMin: new Date(now - args.days_back * 86_400_000).toISOString(),
-        timeMax: new Date(now + args.days_ahead * 86_400_000).toISOString(),
-        maxResults: args.max_results,
-        calendarId: args.calendar_id,
-      });
-      if (!events.length) return {content: 'No calendar events in that window.', summary: 'no events'};
-      return {
-        content: events
-          .map((event) => {
-            const attendees = event.attendees?.length ? ` · with ${event.attendees.slice(0, 6).join(', ')}` : '';
-            const location = event.location ? ` · ${event.location}` : '';
-            return `- ${event.start} → ${event.end}: ${event.summary}${location}${attendees} [${event.id}]`;
-          })
-          .join('\n'),
-        summary: `${events.length} events`,
-      };
+      const timeMin = new Date(now - args.days_back * 86_400_000).toISOString();
+      const timeMax = new Date(now + args.days_ahead * 86_400_000).toISOString();
+      const googleService = ctx.integrations.services.google;
+      if (googleService?.isAuthorized()) {
+        const events = await googleService.listEvents({
+          timeMin,
+          timeMax,
+          maxResults: args.max_results,
+          calendarId: args.calendar_id,
+        });
+        if (!events.length) return {content: 'No calendar events in that window.', summary: 'no events'};
+        return {
+          content: events
+            .map((event) => {
+              const attendees = event.attendees?.length ? ` · with ${event.attendees.slice(0, 6).join(', ')}` : '';
+              const location = event.location ? ` · ${event.location}` : '';
+              return `- ${event.start} → ${event.end}: ${event.summary}${location}${attendees} [${event.id}]`;
+            })
+            .join('\n'),
+          summary: `${events.length} events`,
+        };
+      }
+      const feeds = ctx.integrations.services.calendarFeeds;
+      if (feeds.list().length) {
+        const result = await feeds.events({timeMin, timeMax});
+        const events = result.events.slice(0, args.max_results);
+        if (!events.length) return {content: 'No calendar events in that window.', summary: 'no events'};
+        return {
+          content: events
+            .map((event) => {
+              const location = event.location ? ` · ${event.location}` : '';
+              const source = event.source ? ` · ${event.source}` : '';
+              return `- ${event.all_day ? 'all day' : event.start} → ${event.end}: ${event.summary}${location}${source}`;
+            })
+            .join('\n'),
+          summary: `${events.length} events`,
+        };
+      }
+      throw new Error('No calendar is connected. Add a private iCal address in JARVIS → Agenda, or connect Google Calendar.');
     },
   }),
 

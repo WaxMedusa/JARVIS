@@ -2,6 +2,8 @@ import type {JarvisConfig} from '../config.js';
 import type {JarvisDB} from '../db/database.js';
 import type {Policy} from '../security/policy.js';
 import type {SecretStore} from '../security/secrets.js';
+import {CanvasClient} from './canvas.js';
+import {IcsCalendarFeedService} from './calendar-feed.js';
 import {EmailClient} from './email.js';
 import {GitHubClient} from './github.js';
 import {GoogleClient} from './google.js';
@@ -35,6 +37,8 @@ export class IntegrationsHub implements IntegrationHub {
       github: GitHubClient.create(config.integrations.github),
       homeAssistant: HomeAssistantClient.create(config.integrations.homeAssistant),
       linear: LinearClient.create(config.integrations.linear.token),
+      canvas: CanvasClient.create({baseUrl: config.integrations.canvas.baseUrl, token: config.integrations.canvas.token}),
+      calendarFeeds: new IcsCalendarFeedService({secrets}),
       email: EmailClient.create(config.integrations.email),
       supabase: SupabaseClient.create({
         url: config.integrations.supabase.url,
@@ -64,6 +68,18 @@ export class IntegrationsHub implements IntegrationHub {
       {name: 'github', label: 'GitHub', configured: Boolean(s.github), detail: s.github ? 'token set' : 'set GITHUB_TOKEN'},
       {name: 'linear', label: 'Linear', configured: Boolean(s.linear), detail: s.linear ? 'token set' : 'set LINEAR_API_KEY'},
       {
+        name: 'canvas',
+        label: 'Canvas LMS',
+        configured: Boolean(s.canvas),
+        detail: s.canvas ? 'credentials set' : 'add your Canvas URL and token in JARVIS → School',
+      },
+      {
+        name: 'calendarFeeds',
+        label: 'Calendar feeds',
+        configured: s.calendarFeeds.list().length > 0,
+        detail: s.calendarFeeds.list().length > 0 ? `${s.calendarFeeds.list().length} connected` : 'add a private iCal address in JARVIS → Agenda',
+      },
+      {
         name: 'homeAssistant',
         label: 'Home Assistant',
         configured: Boolean(s.homeAssistant),
@@ -92,4 +108,4 @@ export class IntegrationsHub implements IntegrationHub {
   }
 }
 
-export {GoogleClient, NotionClient, GitHubClient, HomeAssistantClient, LinearClient, EmailClient, SupabaseClient, RssClient};
+export {GoogleClient, NotionClient, GitHubClient, HomeAssistantClient, LinearClient, CanvasClient, EmailClient, SupabaseClient, RssClient, IcsCalendarFeedService};

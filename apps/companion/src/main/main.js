@@ -3,6 +3,7 @@
 const {
   app,
   BrowserWindow,
+  WebContentsView,
   Tray,
   Menu,
   globalShortcut,
@@ -19,20 +20,37 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {JarvisClient} = require('./jarvis-client');
-const {DEFAULT_SETTINGS, normalizeInput, publicSettings} = require('./settings');
+const {DEFAULT_SETTINGS, normalizeInput, publicSettings, validateBaseUrl} = require('./settings');
+const {BackendManager} = require('./backend');
+const {testModel} = require('./models');
 
-const PANEL_WIDTH = 392;
-const PANEL_HEIGHT = 660;
-const PANEL_MARGIN = 18;
+const WINDOW_WIDTH = 1280;
+const WINDOW_HEIGHT = 840;
+const MIN_WIDTH = 960;
+const MIN_HEIGHT = 640;
+const WINDOW_MARGIN = 56;
 const MAX_AUDIO_BYTES = 26 * 1024 * 1024;
+const BROWSER_HOME = 'https://duckduckgo.com/';
+const BROWSER_PARTITION = 'persist:jarvis-browser';
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
 
 let win = null;
 let tray = null;
 let store = null;
+let backend = null;
 let quitting = false;
 let activeHotkey = null;
 let boundsTimer = null;
+let shutdownStarted = false;
+let shutdownComplete = false;
 const activeChats = new Map();
+
+let browserView = null;
+let browserAttached = false;
+let browserVisible = false;
+let browserBounds = null;
+let browserLastError = '';
 
 /* -------------------------------------------------------------------------- */
 /* Secure settings                                                            */
@@ -70,28 +88,63 @@ class SettingsStore {
     }
   }
 
-  get token() {
-    const encrypted = this.data.tokenEnc;
-    if (!encrypted || typeof encrypted !== 'string' || !encrypted.startsWith('enc:')) return '';
+  decrypt(value) {
+    if (!value || typeof value !== 'string' || !value.startsWith('enc:')) return '';
+    if (!safeStorage.isEncryptionAvailable()) return '';
     try {
-      return safeStorage.decryptString(Buffer.from(encrypted.slice(4), 'base64'));
+      return safeStorage.decryptString(Buffer.from(value.slice(4), 'base64'));
     } catch {
       return '';
     }
   }
 
+  encrypt(value) {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('Secure credential storage is unavailable. Unlock the macOS Keychain and try again.');
+    }
+    return `enc:${safeStorage.encryptString(String(value)).toString('base64')}`;
+  }
+
+  get token() {
+    return this.decrypt(this.data.tokenEnc);
+  }
+
   setToken(token) {
     const value = String(token || '').trim();
     if (!value) return;
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('Secure credential storage is unavailable on this Mac.');
-    }
-    this.data.tokenEnc = `enc:${safeStorage.encryptString(value).toString('base64')}`;
+    this.data.tokenEnc = this.encrypt(value);
     this.write();
   }
 
   clearToken() {
     delete this.data.tokenEnc;
+    this.write();
+  }
+
+  get apiKey() {
+    return this.decrypt(this.data.apiKeyEnc);
+  }
+
+  setApiKey(value) {
+    const key = String(value || '').trim();
+    if (!key) return;
+    this.data.apiKeyEnc = this.encrypt(key);
+    this.write();
+  }
+
+  get canvasToken() {
+    return this.decrypt(this.data.canvasTokenEnc);
+  }
+
+  setCanvasToken(value) {
+    const token = String(value || '').trim();
+    if (!token) return;
+    this.data.canvasTokenEnc = this.encrypt(token);
+    this.write();
+  }
+
+  clearCanvasToken() {
+    delete this.data.canvasTokenEnc;
     this.write();
   }
 
@@ -103,21 +156,26 @@ class SettingsStore {
     const next = normalizeInput(allowed, this.data);
     next.bounds = this.data.bounds;
     next.tokenEnc = this.data.tokenEnc;
+    next.apiKeyEnc = this.data.apiKeyEnc;
+    next.canvasTokenEnc = this.data.canvasTokenEnc;
     this.data = next;
     this.write();
     return this.data;
   }
 
   public() {
-    return publicSettings(this.data, Boolean(this.token));
+    return publicSettings(this.data, {
+      hasToken: Boolean(this.token),
+      hasApiKey: Boolean(this.apiKey),
+      hasCanvasToken: Boolean(this.canvasToken),
+    });
   }
 }
 
 function createClient() {
-  return new JarvisClient({
-    baseUrl: store.data.baseUrl,
-    token: store.token,
-  });
+  return new JarvisClient(
+    backend ? backend.clientOptions() : {baseUrl: store.data.baseUrl, token: store.token},
+  );
 }
 
 function applyLoginItem(value) {
@@ -137,7 +195,7 @@ function validBounds(bounds) {
   if (!bounds) return false;
   const values = ['x', 'y', 'width', 'height'].map((key) => Number(bounds[key]));
   if (values.some((value) => !Number.isFinite(value))) return false;
-  if (values[2] < 320 || values[3] < 420) return false;
+  if (values[2] < 900 || values[3] < 600) return false;
   return screen.getAllDisplays().some(({workArea}) => {
     const [x, y, width, height] = values;
     return x < workArea.x + workArea.width && x + width > workArea.x && y < workArea.y + workArea.height && y + height > workArea.y;
@@ -150,37 +208,34 @@ function initialBounds() {
     return {x, y, width, height};
   }
   const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.min(WINDOW_WIDTH, Math.max(MIN_WIDTH, area.width - WINDOW_MARGIN));
+  const height = Math.min(WINDOW_HEIGHT, Math.max(MIN_HEIGHT, area.height - WINDOW_MARGIN));
   return {
-    width: PANEL_WIDTH,
-    height: PANEL_HEIGHT,
-    x: Math.round(area.x + area.width - PANEL_WIDTH - PANEL_MARGIN),
-    y: Math.round(area.y + area.height - PANEL_HEIGHT - PANEL_MARGIN),
+    width,
+    height,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: Math.round(area.y + (area.height - height) / 2),
   };
 }
 
 function createWindow() {
-  const bounds = initialBounds();
   win = new BrowserWindow({
-    ...bounds,
-    minWidth: 340,
-    minHeight: 440,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
+    ...initialBounds(),
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
+    frame: true,
+    backgroundColor: '#0b0d12',
     hasShadow: true,
-    roundedCorners: true,
     resizable: true,
-    movable: true,
-    maximizable: false,
-    minimizable: false,
-    fullscreenable: false,
+    maximizable: true,
+    minimizable: true,
+    fullscreenable: true,
     show: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     acceptFirstMouse: true,
     alwaysOnTop: store.data.alwaysOnTop,
-    vibrancy: process.platform === 'darwin' ? 'under-window' : undefined,
-    visualEffectState: 'active',
-    titleBarStyle: 'hidden',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    trafficLightPosition: process.platform === 'darwin' ? {x: 18, y: 20} : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -191,6 +246,7 @@ function createWindow() {
     },
   });
 
+  win.setTitle('JARVIS');
   if (process.platform === 'darwin') {
     win.setAlwaysOnTop(store.data.alwaysOnTop, 'floating');
     win.setVisibleOnAllWorkspaces(true, {visibleOnFullScreen: true});
@@ -221,7 +277,7 @@ function createWindow() {
       win.hide();
     }
   });
-  win.on('moved', () => {
+  win.on('resize', () => {
     clearTimeout(boundsTimer);
     boundsTimer = setTimeout(() => {
       if (!win || win.isDestroyed() || !win.isVisible()) return;
@@ -231,7 +287,8 @@ function createWindow() {
       } catch {
         // bounds persistence is best-effort
       }
-    }, 500);
+      sendUi('window-resized');
+    }, 400);
   });
 
   void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
@@ -250,11 +307,8 @@ function showPanel(focus = true) {
 
 function togglePanel() {
   if (!win || win.isDestroyed()) return;
-  if (win.isVisible() && win.isFocused()) {
-    win.hide();
-  } else {
-    showPanel(true);
-  }
+  if (win.isVisible() && win.isFocused()) win.hide();
+  else showPanel(true);
 }
 
 function sendUi(event, payload = {}) {
@@ -284,9 +338,7 @@ function registerHotkey() {
     activeHotkey = null;
   }
   try {
-    if (globalShortcut.register(store.data.hotkey, togglePanel)) {
-      activeHotkey = store.data.hotkey;
-    }
+    if (globalShortcut.register(store.data.hotkey, togglePanel)) activeHotkey = store.data.hotkey;
   } catch {
     activeHotkey = null;
   }
@@ -306,10 +358,10 @@ function createTray() {
 
 function buildTrayMenu() {
   return Menu.buildFromTemplate([
-    {label: 'Summon JARVIS', click: () => showPanel(true)},
+    {label: 'Show JARVIS', click: () => showPanel(true)},
     {label: 'New conversation', click: () => { showPanel(true); sendUi('new-chat'); }},
+    {label: 'Open browser', click: () => { showPanel(true); sendUi('open-browser'); }},
     {label: 'New note', click: () => { showPanel(true); sendUi('new-note'); }},
-    {label: 'Capture clipboard to memory', click: () => { void captureClipboard().catch((error) => sendUi('error', {message: error.message})); }},
     {label: 'Capture clipboard to notes', click: () => { void captureClipboardNote().catch((error) => sendUi('error', {message: error.message})); }},
     {type: 'separator'},
     {
@@ -335,6 +387,136 @@ function buildTrayMenu() {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Embedded browser                                                           */
+/* -------------------------------------------------------------------------- */
+
+function ensureBrowser() {
+  if (browserView) return browserView;
+  const browserSession = session.fromPartition(BROWSER_PARTITION);
+  browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  browserSession.setPermissionCheckHandler(() => false);
+
+  browserView = new WebContentsView({
+    webPreferences: {
+      session: browserSession,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      spellcheck: true,
+      devTools: true,
+    },
+  });
+  const wc = browserView.webContents;
+  wc.setUserAgent(BROWSER_USER_AGENT);
+  wc.setWindowOpenHandler(({url}) => {
+    if (/^https?:\/\//i.test(url)) void wc.loadURL(url);
+    return {action: 'deny'};
+  });
+  wc.on('will-navigate', (event, url) => {
+    if (!/^https?:\/\//i.test(url)) event.preventDefault();
+  });
+  const update = () => emitBrowserState();
+  for (const name of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) {
+    wc.on(name, update);
+  }
+  wc.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return;
+    browserLastError = description || 'The page could not be loaded.';
+    emitBrowserState();
+  });
+  wc.on('did-finish-load', () => {
+    browserLastError = '';
+    emitBrowserState();
+  });
+  wc.on('render-process-gone', () => {
+    browserLastError = 'The page stopped responding.';
+    emitBrowserState();
+  });
+  void wc.loadURL(BROWSER_HOME).catch(() => {});
+  return browserView;
+}
+
+function browserState() {
+  if (!browserView) {
+    return {url: '', title: '', loading: false, canGoBack: false, canGoForward: false, error: ''};
+  }
+  const wc = browserView.webContents;
+  return {
+    url: wc.getURL(),
+    title: wc.getTitle(),
+    loading: wc.isLoading(),
+    canGoBack: wc.canGoBack(),
+    canGoForward: wc.canGoForward(),
+    error: browserLastError,
+  };
+}
+
+function emitBrowserState() {
+  sendUi('browser-state', {browser: browserState()});
+}
+
+function attachBrowser() {
+  if (!browserView || browserAttached || !win || win.isDestroyed()) return;
+  win.contentView.addChildView(browserView);
+  browserAttached = true;
+}
+
+function detachBrowser() {
+  if (!browserView || !browserAttached || !win || win.isDestroyed()) return;
+  try {
+    win.contentView.removeChildView(browserView);
+  } catch {
+    // the window may already be gone
+  }
+  browserAttached = false;
+}
+
+function normalizeBrowserUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value) throw new Error('Enter a URL.');
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error('Enter a valid URL.');
+    }
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new Error('Only http(s) pages can open in the JARVIS browser.');
+    }
+    if (url.username || url.password) throw new Error('Do not put credentials in the URL.');
+    return url.toString();
+  }
+  if (/^[\w-]+(\.[\w-]+)+([/:?#].*)?$/.test(value)) return new URL(`https://${value}`).toString();
+  return `https://duckduckgo.com/?q=${encodeURIComponent(value)}`;
+}
+
+function setBrowserBounds(payload = {}) {
+  const view = ensureBrowser();
+  if (!win || win.isDestroyed()) return {ok: false};
+  browserVisible = payload.visible === true;
+  const width = Number(payload.width);
+  const height = Number(payload.height);
+  const x = Number(payload.x);
+  const y = Number(payload.y);
+  if (browserVisible && Number.isFinite(x) && Number.isFinite(y) && width > 20 && height > 20) {
+    const [contentWidth, contentHeight] = win.getContentSize();
+    browserBounds = {
+      x: Math.max(0, Math.min(Math.round(x), contentWidth)),
+      y: Math.max(0, Math.min(Math.round(y), contentHeight)),
+      width: Math.max(20, Math.min(Math.round(width), contentWidth)),
+      height: Math.max(20, Math.min(Math.round(height), contentHeight)),
+    };
+    view.setBounds(browserBounds);
+    attachBrowser();
+  } else if (!browserVisible) {
+    detachBrowser();
+  }
+  return {ok: true, visible: browserVisible};
+}
+
+/* -------------------------------------------------------------------------- */
 /* Actions                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -343,9 +525,7 @@ async function captureClipboard() {
   if (!text) throw new Error('The clipboard is empty.');
   const content = text.slice(0, 8000);
   const memory = await createClient().remember(content, {kind: 'note', importance: 0.55, source: 'companion-clipboard'});
-  if (Notification.isSupported()) {
-    new Notification({title: 'JARVIS', body: 'Clipboard saved to memory.'}).show();
-  }
+  if (Notification.isSupported()) new Notification({title: 'JARVIS', body: 'Clipboard saved to memory.'}).show();
   sendUi('captured', {id: memory?.id, chars: content.length});
   return {ok: true, id: memory?.id, chars: content.length};
 }
@@ -374,7 +554,9 @@ function audioPayload(payload = {}) {
   if (!mime.startsWith('audio/') && mime !== 'video/webm' && mime !== 'application/octet-stream') {
     throw new Error('Unsupported audio type.');
   }
-  const filename = String(payload.filename || (mime.includes('mp4') ? 'voice-note.m4a' : 'voice-note.webm')).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+  const filename = String(payload.filename || (mime.includes('mp4') ? 'voice-note.m4a' : 'voice-note.webm'))
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 120);
   return {buffer, mime, filename};
 }
 
@@ -415,15 +597,64 @@ function handle(channel, fn) {
   });
 }
 
-function registerIpc() {
-  handle('settings:get', () => ({
+function onboardingState() {
+  return {
+    needed: !store.data.onboarded,
+    provider: store.data.provider,
+    model: store.data.model,
+    apiBaseUrl: store.data.apiBaseUrl,
+    hasApiKey: Boolean(store.apiKey),
+    core: backend ? backend.snapshot() : null,
+  };
+}
+
+function settingsPayload() {
+  return {
     ...store.public(),
     version: app.getVersion(),
     platform: process.platform,
     hotkeyActive: Boolean(activeHotkey),
-  }));
+    core: backend ? backend.snapshot() : null,
+    onboarding: onboardingState(),
+  };
+}
+
+async function completeOnboarding(payload = {}) {
+  const provider = ['openai', 'anthropic', 'openrouter', 'google', 'ollama', 'custom'].includes(payload.provider)
+    ? payload.provider
+    : store.data.provider;
+  const model = String(payload.model || '').trim().slice(0, 200);
+  const apiBaseUrl = String(payload.apiBaseUrl || '').trim();
+  const enteredKey = String(payload.apiKey || '').trim();
+  const apiKey = enteredKey || (provider === store.data.provider ? store.apiKey : '');
+  if (!model) throw new Error('Choose a model first.');
+  if (provider !== 'ollama' && !apiKey) throw new Error('Paste an API key for this provider.');
+  await testModel({provider, model, apiKey, apiBaseUrl});
+  if (enteredKey) store.setApiKey(enteredKey);
+  store.save({provider, model, apiBaseUrl, onboarded: true});
+  const core = await backend.restart();
+  if (core.state !== 'online') throw new Error(core.message || 'JARVIS core did not start.');
+  return {settings: settingsPayload(), core};
+}
+
+async function connectCanvas(payload = {}) {
+  const baseUrl = validateBaseUrl(String(payload.baseUrl || '').trim(), 'Canvas URL');
+  const token = String(payload.token || '').trim() || store.canvasToken;
+  if (!token) throw new Error('Paste a Canvas API token.');
+  store.setCanvasToken(token);
+  store.save({canvasBaseUrl: baseUrl});
+  const core = backend.state === 'online' ? await backend.restart() : await backend.start();
+  if (core.state !== 'online') throw new Error(core.message || 'JARVIS core did not restart.');
+  return createClient().canvas();
+}
+
+function registerIpc() {
+  handle('settings:get', () => settingsPayload());
 
   handle('settings:save', (payload = {}) => {
+    payload = payload && typeof payload === 'object' ? payload : {};
+    const previousExternal = store.data.useExternalDaemon;
+    const previousUrl = store.data.baseUrl;
     const saved = store.save(payload || {});
     if (typeof payload.token === 'string' && payload.token.trim()) store.setToken(payload.token);
     if (payload.clearToken === true) store.clearToken();
@@ -433,7 +664,28 @@ function registerIpc() {
       else win.setAlwaysOnTop(saved.alwaysOnTop);
     }
     const hotkeyActive = registerHotkey();
-    return {...store.public(), version: app.getVersion(), platform: process.platform, hotkeyActive};
+    if (previousExternal !== saved.useExternalDaemon || previousUrl !== saved.baseUrl) {
+      void backend.restart();
+    }
+    return {...settingsPayload(), hotkeyActive};
+  });
+
+  handle('core:state', () => (backend ? backend.snapshot() : {state: 'stopped', message: 'JARVIS core is stopped.'}));
+  handle('core:restart', () => backend.restart());
+
+  handle('onboarding:state', () => onboardingState());
+  handle('onboarding:test', (payload = {}) =>
+    testModel({
+      provider: payload.provider,
+      model: payload.model,
+      apiKey: payload.apiKey,
+      apiBaseUrl: payload.apiBaseUrl,
+    }),
+  );
+  handle('onboarding:complete', (payload) => completeOnboarding(payload || {}));
+  handle('onboarding:reset', () => {
+    store.save({onboarded: false});
+    return onboardingState();
   });
 
   handle('jarvis:status', () => createClient().status());
@@ -486,6 +738,34 @@ function registerIpc() {
       attendees: Array.isArray(payload.attendees) ? payload.attendees : undefined,
     });
   });
+  handle('calendar:feeds', () => createClient().calendarFeeds());
+  handle('calendar:add-feed', (payload = {}) => {
+    const url = String(payload.url || '').trim();
+    if (!url) throw new Error('Paste the private iCal address of your calendar.');
+    return createClient().addCalendarFeed({
+      url,
+      label: typeof payload.label === 'string' ? payload.label.slice(0, 80) : undefined,
+    });
+  });
+  handle('calendar:remove-feed', (id) => {
+    if (typeof id !== 'string' || !id) throw new Error('Calendar id is required.');
+    return createClient().removeCalendarFeed(id);
+  });
+
+  handle('canvas:summary', () => createClient().canvas());
+  handle('canvas:assignments', (payload = {}) => {
+    const courseId = String(payload.courseId || '');
+    if (!courseId) throw new Error('Choose a Canvas course first.');
+    return createClient().canvasAssignments(courseId, payload.bucket || 'upcoming');
+  });
+  handle('canvas:connect', (payload) => connectCanvas(payload || {}));
+  handle('canvas:disconnect', async () => {
+    store.clearCanvasToken();
+    store.save({canvasBaseUrl: ''});
+    const core = await backend.restart();
+    return {core, settings: settingsPayload()};
+  });
+
   handle('audio:transcribe', (payload) => createClient().transcribeAudio(audioPayload(payload)));
   handle('audio:note', (payload = {}) => {
     const audio = audioPayload(payload);
@@ -501,6 +781,58 @@ function registerIpc() {
   handle('jarvis:approve', (payload = {}) => {
     if (typeof payload.id !== 'string' || !payload.id) throw new Error('Approval id is required.');
     return createClient().approve(payload.id, payload.approved === true);
+  });
+
+  handle('browser:navigate', async (raw) => {
+    const url = normalizeBrowserUrl(raw);
+    const view = ensureBrowser();
+    browserLastError = '';
+    await view.webContents.loadURL(url);
+    if (browserVisible && browserBounds) attachBrowser();
+    emitBrowserState();
+    return browserState();
+  });
+  handle('browser:back', () => {
+    if (browserView?.webContents.canGoBack()) browserView.webContents.goBack();
+    return browserState();
+  });
+  handle('browser:forward', () => {
+    if (browserView?.webContents.canGoForward()) browserView.webContents.goForward();
+    return browserState();
+  });
+  handle('browser:reload', () => {
+    browserView?.webContents.reload();
+    return browserState();
+  });
+  handle('browser:stop', () => {
+    browserView?.webContents.stop();
+    return browserState();
+  });
+  handle('browser:set-bounds', (payload) => setBrowserBounds(payload || {}));
+  handle('browser:context', async () => {
+    if (!browserView) throw new Error('Open the JARVIS browser first.');
+    const wc = browserView.webContents;
+    const url = wc.getURL();
+    if (!url) throw new Error('Open a page in the JARVIS browser first.');
+    const result = await wc.executeJavaScript(
+      `(() => {
+        const body = document.body;
+        const text = (body ? body.innerText : '').replace(/\\s+/g, ' ').trim();
+        return {url: location.href, title: document.title || '', text: text.slice(0, 20000)};
+      })()`,
+      true,
+    );
+    return {
+      url: String(result?.url || url).slice(0, 2000),
+      title: String(result?.title || '').slice(0, 300),
+      text: String(result?.text || '').slice(0, 20000),
+    };
+  });
+  handle('browser:open-external', async () => {
+    const url = browserView?.webContents.getURL() || '';
+    if (!/^https?:\/\//i.test(url)) throw new Error('Nothing to open.');
+    await shell.openExternal(url);
+    return {ok: true};
   });
 
   handle('app:capture-clipboard', () => captureClipboard());
@@ -526,7 +858,7 @@ function registerIpc() {
   handle('chat:start', (payload = {}) => {
     const message = String(payload.message || '').trim();
     if (!message) throw new Error('Message is empty.');
-    if (message.length > 32000) throw new Error('Message is too long.');
+    if (message.length > 48_000) throw new Error('Message is too long.');
     const requestId = crypto.randomUUID();
     const controller = new AbortController();
     activeChats.set(requestId, controller);
@@ -573,8 +905,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     app.setName('JARVIS');
     if (process.platform === 'darwin') {
-      app.setActivationPolicy('accessory');
-      app.dock?.hide();
+      app.setActivationPolicy('regular');
+      app.dock?.show();
     }
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       const types = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
@@ -588,6 +920,18 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     store = new SettingsStore();
+    backend = new BackendManager({
+      appRoot: path.resolve(__dirname, '..', '..', '..', '..'),
+      resourcesPath: process.resourcesPath,
+      isPackaged: app.isPackaged,
+      userData: app.getPath('userData'),
+      getSettings: () => store.data,
+      getApiKey: () => store.apiKey,
+      getCanvasToken: () => store.canvasToken,
+      getExternalToken: () => store.token,
+      onState: (snapshot) => sendUi('core-state', {core: snapshot}),
+    });
+
     registerIpc();
     createWindow();
     createTray();
@@ -595,6 +939,7 @@ if (!app.requestSingleInstanceLock()) {
     applyLoginItem(store.data.launchAtLogin);
 
     if (process.argv.includes('--dev')) win?.webContents.openDevTools({mode: 'detach'});
+    if (store.data.onboarded) void backend.start();
   }).catch((error) => {
     console.error('Failed to start JARVIS Companion:', error);
     app.quit();
@@ -602,12 +947,28 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('activate', () => showPanel(true));
   app.on('window-all-closed', () => {
-    // Menu-bar app: closing the panel should not terminate the process.
+    // Menu-bar app: closing the window should not terminate the core.
   });
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
     quitting = true;
+    if (shutdownComplete) return;
+    event.preventDefault();
+    if (shutdownStarted) return;
+    shutdownStarted = true;
     for (const controller of activeChats.values()) controller.abort();
     activeChats.clear();
     globalShortcut.unregisterAll();
+    detachBrowser();
+    if (browserView && !browserView.webContents.isDestroyed()) {
+      try {
+        browserView.webContents.close();
+      } catch {
+        // already gone
+      }
+    }
+    Promise.resolve(backend ? backend.stop() : null).finally(() => {
+      shutdownComplete = true;
+      app.quit();
+    });
   });
 }

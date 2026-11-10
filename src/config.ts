@@ -63,6 +63,10 @@ const IntegrationSchema = z.object({
   linear: z.object({
     token: z.string().default(''),
   }),
+  canvas: z.object({
+    baseUrl: z.string().default(''),
+    token: z.string().default(''),
+  }),
   supabase: z.object({
     url: z.string().default(''),
     key: z.string().default(''),
@@ -446,6 +450,7 @@ function defaults(env: NodeJS.ProcessEnv, home: string): JarvisConfigData {
       github: {token: env.GITHUB_TOKEN?.trim() || '', defaultRepo: env.GITHUB_DEFAULT_REPO?.trim() || '', apiBase: 'https://api.github.com'},
       homeAssistant: {baseUrl: env.HOME_ASSISTANT_URL?.trim() || '', token: env.HOME_ASSISTANT_TOKEN?.trim() || ''},
       linear: {token: env.LINEAR_API_KEY?.trim() || ''},
+      canvas: {baseUrl: env.CANVAS_BASE_URL?.trim() || '', token: env.CANVAS_API_TOKEN?.trim() || ''},
       supabase: {
         url: env.SUPABASE_URL?.trim() || '',
         key: env.SUPABASE_SERVICE_ROLE_KEY?.trim() || env.SUPABASE_KEY?.trim() || '',
@@ -569,6 +574,7 @@ export function publicConfig(config: JarvisConfig): Record<string, unknown> {
     if (copy.integrations?.github?.[key]) copy.integrations.github[key] = '[set]';
     if (copy.integrations?.homeAssistant?.[key]) copy.integrations.homeAssistant[key] = '[set]';
     if (copy.integrations?.linear?.[key]) copy.integrations.linear[key] = '[set]';
+    if (copy.integrations?.canvas?.[key]) copy.integrations.canvas[key] = '[set]';
     if (copy.integrations?.supabase?.[key]) copy.integrations.supabase[key] = '[set]';
     if (copy.integrations?.telegram?.[key]) copy.integrations.telegram[key] = '[set]';
     if (copy.integrations?.web?.[key]) copy.integrations.web[key] = '[set]';

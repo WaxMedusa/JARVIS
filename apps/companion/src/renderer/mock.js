@@ -106,10 +106,46 @@
     launchAtLogin: false,
     showOnLaunch: true,
     hotkey: 'CommandOrControl+Shift+J',
+    onboarded: true,
+    provider: 'openai',
+    model: 'gpt-5.1',
+    apiBaseUrl: '',
+    useExternalDaemon: false,
+    canvasBaseUrl: 'https://canvas.example.edu',
     hasToken: false,
-    version: '2.1.0',
+    hasApiKey: true,
+    hasCanvasToken: true,
+    version: '3.0.0',
     platform: 'darwin',
     hotkeyActive: true,
+    core: {state: 'online', message: 'Preview core is online.', managed: true},
+    onboarding: {needed: false, provider: 'openai', model: 'gpt-5.1', hasApiKey: true},
+  };
+  let browser = {
+    url: 'https://calendar.google.com/calendar/u/0/r/week',
+    title: 'Google Calendar — Week',
+    loading: false,
+    canGoBack: true,
+    canGoForward: false,
+    error: '',
+  };
+  const canvasAssignments = [
+    {id: 'a1', name: 'Board deck narrative — final pass', courseName: 'Product Strategy', dueAt: new Date(Date.now() + 86_400_000).toISOString(), pointsPossible: 100, submitted: false, url: 'https://canvas.example.edu/courses/1/assignments/1'},
+    {id: 'a2', name: 'Case study: retention economics', courseName: 'Growth', dueAt: new Date(Date.now() + 172_800_000).toISOString(), pointsPossible: 40, submitted: false, url: 'https://canvas.example.edu/courses/2/assignments/2'},
+    {id: 'a3', name: 'Reading response — systems thinking', courseName: 'Systems', dueAt: new Date(Date.now() + 259_200_000).toISOString(), pointsPossible: 20, submitted: true, url: 'https://canvas.example.edu/courses/3/assignments/3'},
+    {id: 'a4', name: 'Midterm outline', courseName: 'Product Strategy', dueAt: new Date(Date.now() + 432_000_000).toISOString(), pointsPossible: 50, submitted: false, url: 'https://canvas.example.edu/courses/1/assignments/4'},
+  ];
+  const canvasData = {
+    available: true,
+    configured: true,
+    profile: {connected: true, name: 'Alex Morgan', email: 'alex@school.edu'},
+    courses: [
+      {id: '1', name: 'Product Strategy', courseCode: 'BUS 412', term: 'Fall 2026', url: 'https://canvas.example.edu/courses/1'},
+      {id: '2', name: 'Growth', courseCode: 'MKT 308', term: 'Fall 2026', url: 'https://canvas.example.edu/courses/2'},
+      {id: '3', name: 'Systems', courseCode: 'DES 220', term: 'Fall 2026', url: 'https://canvas.example.edu/courses/3'},
+    ],
+    upcoming: canvasAssignments.filter((item) => !item.submitted),
+    todo: canvasAssignments.filter((item) => !item.submitted).slice(0, 3),
   };
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -218,7 +254,7 @@
     },
     testConnection: async () => ({
       name: 'JARVIS',
-      version: '2.1.0',
+      version: '3.0.0',
       model: 'mock/preview',
       provider: 'mock',
       tools: 53,
@@ -364,6 +400,58 @@
       const note = await api.createNote({title: 'Clipboard note', content: 'Captured from the clipboard in preview mode.', source: 'clipboard'});
       return {ok: true, id: note.id, title: note.title};
     },
+    getCoreState: async () => settings.core,
+    restartCore: async () => {
+      settings.core = {state: 'online', message: 'Preview core is online.', managed: true};
+      return settings.core;
+    },
+    getOnboardingState: async () => settings.onboarding,
+    testModel: async () => ({ok: true, reply: 'OK'}),
+    completeOnboarding: async (payload = {}) => {
+      settings = {...settings, onboarded: true, provider: payload.provider || settings.provider, model: payload.model || settings.model, hasApiKey: true};
+      settings.onboarding = {needed: false, provider: settings.provider, model: settings.model, hasApiKey: true};
+      return {settings, core: settings.core};
+    },
+    resetOnboarding: async () => {
+      settings = {...settings, onboarded: false};
+      settings.onboarding = {needed: true, provider: settings.provider, model: settings.model, hasApiKey: settings.hasApiKey};
+      return settings.onboarding;
+    },
+    getCalendarFeeds: async () => [
+      {id: 'feed_1', label: 'Personal', url: 'https://calendar.google.com/calendar/ical/preview/basic.ics'},
+      {id: 'feed_2', label: 'School', url: 'https://calendar.google.com/calendar/ical/school/basic.ics'},
+    ],
+    addCalendarFeed: async (feed = {}) => ({id: `feed_${Date.now()}`, label: feed.label || 'Calendar', url: feed.url}),
+    removeCalendarFeed: async () => ({ok: true}),
+    getCanvas: async () => {
+      await wait(220);
+      return canvasData;
+    },
+    getCanvasAssignments: async (courseId, bucket = 'upcoming') => {
+      await wait(200);
+      const course = canvasData.courses.find((item) => item.id === courseId);
+      return canvasAssignments
+        .filter((item) => !course || item.courseName === course.name)
+        .filter((item) => (bucket === 'past' ? item.submitted : !item.submitted));
+    },
+    connectCanvas: async () => canvasData,
+    disconnectCanvas: async () => ({settings: {...settings, hasCanvasToken: false}, core: settings.core}),
+    browserNavigate: async (raw) => {
+      const value = String(raw || '');
+      browser = {...browser, url: /^https?:/i.test(value) ? value : `https://duckduckgo.com/?q=${encodeURIComponent(value)}`, title: value.includes('calendar') ? 'Google Calendar — Week' : 'JARVIS Browser', canGoBack: true};
+      return browser;
+    },
+    browserBack: async () => browser,
+    browserForward: async () => browser,
+    browserReload: async () => browser,
+    browserStop: async () => browser,
+    browserSetBounds: async () => ({ok: true}),
+    browserContext: async () => ({
+      url: browser.url,
+      title: browser.title,
+      text: 'Google Calendar — Week of 10 November. Product review Monday 09:30. Board deck working session Tuesday 10:00. Design critique Tuesday 16:00. Dentist Wednesday 08:30. Quarterly planning Friday 14:00.',
+    }),
+    browserOpenExternal: async () => ({ok: true}),
     hide: async () => undefined,
     quit: async () => undefined,
     openExternal: async () => ({ok: true}),

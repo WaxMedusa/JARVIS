@@ -1,8 +1,8 @@
 {
   "name": "jarvis-companion",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "JARVIS — an always-on macOS companion for your personal AI chief-of-staff",
+  "description": "JARVIS — a self-contained desktop AI chief-of-staff for macOS",
   "author": "WaxMedusa",
   "license": "UNLICENSED",
   "main": "src/main/main.js",
@@ -10,9 +10,10 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "assets": "node scripts/generate-assets.mjs",
+    "prepare:backend": "node scripts/prepare-backend.mjs",
     "test": "node --test test/*.test.js",
-    "pack": "electron-builder --dir",
-    "dist:mac": "electron-builder --mac --x64 --arm64 --publish never"
+    "pack": "npm run prepare:backend && electron-builder --dir",
+    "dist:mac": "npm run prepare:backend && electron-builder --mac --x64 --arm64 --publish never"
   },
   "devDependencies": {
     "electron": "45.2.3",
@@ -28,11 +29,20 @@
       "build/trayTemplate*.png",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "extraResources/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"
     },
-    "artifactName": "JARVIS-Companion-${version}-${arch}.${ext}",
+    "artifactName": "JARVIS-${version}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
@@ -43,14 +53,14 @@
         "zip"
       ],
       "extendInfo": {
-        "LSUIElement": true,
+        "LSUIElement": false,
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": true,
         "NSMicrophoneUsageDescription": "JARVIS uses the microphone only when you dictate a message or record a voice note."
       }
     },
     "dmg": {
-      "title": "JARVIS Companion ${version}",
+      "title": "JARVIS ${version}",
       "window": {
         "width": 540,
         "height": 380

@@ -20,6 +20,8 @@ import {NotificationHub} from '../notify/index.js';
 import {ToolRegistry} from '../tools/registry.js';
 import {memoryTools} from '../tools/memory-tools.js';
 import {noteTools} from '../tools/note-tools.js';
+import {canvasTools} from '../tools/canvas-tools.js';
+import {calendarFeedTools} from '../tools/calendar-tools.js';
 import {fileTools} from '../tools/files.js';
 import {shellTools} from '../tools/shell.js';
 import {webTools} from '../tools/web.js';
@@ -107,6 +109,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<App> {
     if (options.registerTools !== false) {
       registry.registerMany(memoryTools);
       registry.registerMany(noteTools);
+      registry.registerMany(canvasTools);
+      registry.registerMany(calendarFeedTools);
       registry.registerMany(fileTools);
       registry.registerMany(shellTools);
       registry.registerMany(webTools);

@@ -137,6 +137,35 @@ class JarvisClient {
     return result.event;
   }
 
+  async calendarFeeds() {
+    const result = await this.request('/v1/calendar/feeds');
+    return Array.isArray(result.feeds) ? result.feeds : [];
+  }
+
+  async addCalendarFeed(feed = {}) {
+    const result = await this.request('/v1/calendar/feeds', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({url: feed.url, label: feed.label}),
+      timeoutMs: 45_000,
+    });
+    return result.feed;
+  }
+
+  async removeCalendarFeed(id) {
+    return this.request(`/v1/calendar/feeds/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  }
+
+  async canvas() {
+    return this.request('/v1/canvas', {timeoutMs: 60_000});
+  }
+
+  async canvasAssignments(courseId, bucket = 'upcoming') {
+    const params = new URLSearchParams({course_id: String(courseId), bucket: String(bucket)});
+    const result = await this.request(`/v1/canvas/assignments?${params}`, {timeoutMs: 45_000});
+    return Array.isArray(result.assignments) ? result.assignments : [];
+  }
+
   async transcribeAudio({data, mime = 'audio/webm', filename = 'voice-note.webm'} = {}) {
     const form = new FormData();
     form.append('file', audioBlob(data, mime), filename);

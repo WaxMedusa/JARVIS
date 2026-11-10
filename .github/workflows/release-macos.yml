@@ -1,10 +1,13 @@
-name: Build and release JARVIS Companion
+name: Build and release JARVIS
 
 on:
   push:
     branches: [main]
     paths:
       - 'apps/companion/**'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/release-macos.yml'
   workflow_dispatch:
 
@@ -41,7 +44,7 @@ jobs:
           if [ "$available" = "true" ]; then
             echo "Apple signing credentials detected; this run will produce a signed and notarized release."
           else
-            echo "::notice::Apple signing credentials are not configured. This run will publish an unsigned preview release so the companion remains installable; add the five secrets for a signed release."
+            echo "::notice::Apple signing credentials are not configured. This run will publish an unsigned preview release so the app remains installable; add the five secrets for a signed release."
           fi
 
   build:
@@ -63,17 +66,44 @@ jobs:
       - name: Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-          cache-dependency-path: apps/companion/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/companion/package-lock.json
 
-      - name: Install
+      - name: Install core
+        run: npm ci
+
+      - name: Typecheck and build core
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: Test core
+        if: matrix.arch == 'arm64'
+        run: npm test
+
+      - name: Install companion
         working-directory: apps/companion
         run: npm ci
 
-      - name: Test
+      - name: Test companion
         working-directory: apps/companion
         run: npm test
+
+      - name: Bundle embedded core
+        working-directory: apps/companion
+        run: npm run prepare:backend
+
+      - name: Verify embedded core
+        working-directory: apps/companion
+        run: |
+          set -euo pipefail
+          test -s extraResources/backend/index.cjs
+          test -f extraResources/backend/package.json
+          node extraResources/backend/index.cjs --help > /dev/null
+          echo "Embedded core: $(du -h extraResources/backend/index.cjs | cut -f1)"
 
       - name: Build signed and notarized
         if: needs.signing.outputs.available == 'true'
@@ -97,7 +127,7 @@ jobs:
           npm run assets
           npx electron-builder --mac --${{ matrix.arch }} --publish never
 
-      - name: Verify packaged app and disk image
+      - name: Verify packaged app, core and disk image
         working-directory: apps/companion
         shell: bash
         run: |
@@ -108,17 +138,54 @@ jobs:
             exit 1
           fi
           test -f "$app/Contents/Resources/app.asar"
+          test -s "$app/Contents/Resources/backend/index.cjs"
+          test -f "$app/Contents/Resources/backend/package.json"
           plutil -lint "$app/Contents/Info.plist"
           plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist"
           plutil -extract NSMicrophoneUsageDescription raw -o - "$app/Contents/Info.plist"
-          plutil -extract LSUIElement raw -o - "$app/Contents/Info.plist"
+          version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
+          test "$version" = "3.0.0"
+          lui="$(plutil -extract LSUIElement raw -o - "$app/Contents/Info.plist")"
+          case "$lui" in 0|false) ;; *) echo "::error::LSUIElement must be false, got $lui"; exit 1;; esac
+          ./node_modules/.bin/asar list "$app/Contents/Resources/app.asar" | grep -q '/workspace.js'
+          ./node_modules/.bin/asar list "$app/Contents/Resources/app.asar" | grep -q '/styles-v3.css'
+          ./node_modules/.bin/asar list "$app/Contents/Resources/app.asar" | grep -q '/markdown.js'
+          echo "Checking that the installed app can start its own core with no terminal…"
+          home="$(mktemp -d)"
+          port=8791
+          JARVIS_HOME="$home" \
+          JARVIS_LLM_PROVIDER=mock \
+          JARVIS_SERVER_HOST=127.0.0.1 \
+          JARVIS_SERVER_PORT="$port" \
+          JARVIS_API_TOKEN=ci-token \
+          JARVIS_PROACTIVE=false \
+          JARVIS_EMBEDDINGS=false \
+          node "$app/Contents/Resources/backend/index.cjs" serve --host 127.0.0.1 --port "$port" > core-smoke.log 2>&1 &
+          core_pid=$!
+          cleanup() { kill "$core_pid" 2>/dev/null || true; wait "$core_pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          ready=false
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:$port/health" > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 0.5
+          done
+          if [ "$ready" != "true" ]; then
+            echo "::error::The bundled core did not become healthy."
+            cat core-smoke.log
+            exit 1
+          fi
+          cleanup
+          trap - EXIT
           dmg="$(find release -maxdepth 1 -name '*.dmg' -print -quit)"
           zip="$(find release -maxdepth 1 -name '*.zip' -print -quit)"
           test -n "$dmg"
           test -n "$zip"
           hdiutil verify "$dmg"
           unzip -tq "$zip"
-          echo "Verified JARVIS.app, $(basename "$dmg"), and $(basename "$zip") for ${{ matrix.arch }}."
+          echo "Verified JARVIS.app, the embedded core, $(basename "$dmg"), and $(basename "$zip") for ${{ matrix.arch }}."
 
       - name: Verify Developer ID signature and notarization
         if: needs.signing.outputs.available == 'true'
@@ -153,7 +220,7 @@ jobs:
       - name: Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Download both architectures
         uses: actions/download-artifact@v4
@@ -173,17 +240,23 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: companion-v${{ steps.version.outputs.version }}
-          name: JARVIS Companion v${{ steps.version.outputs.version }}
+          name: JARVIS v${{ steps.version.outputs.version }}
           body: |
-            Always-there macOS companion for JARVIS, with Chat, Notes, Agenda and voice capture.
+            JARVIS is now one app. The core, memory, tools, browser, Canvas
+            client and calendar engine are all inside the download — no
+            terminal, no separate daemon, no setup beyond choosing a model.
 
-            **Requires** the JARVIS daemon on the same machine (default
-            `http://127.0.0.1:8765`). Run `jarvis serve` first.
+            **First launch:** drag JARVIS to Applications, open it, pick a
+            model, paste your own API key. The key is stored in the macOS
+            Keychain and handed only to the private local core.
+
+            Inside: a ChatGPT-grade chat workspace, notes, voice notes, an
+            embedded browser JARVIS can read, Google Calendar/iCloud/Outlook
+            via private iCal feeds, and read-only Canvas LMS with courses,
+            assignments and due dates.
 
             Signed with a Developer ID Application certificate and notarized
-            by Apple. Gatekeeper verifies the stapled ticket on first launch.
-
-            Intel and Apple silicon DMGs/ZIPs are attached below.
+            by Apple. Intel and Apple silicon DMGs/ZIPs are attached below.
           files: |
             artifacts/*.dmg
             artifacts/*.zip
@@ -203,7 +276,7 @@ jobs:
       - name: Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Download both architectures
         uses: actions/download-artifact@v4
@@ -223,19 +296,25 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: companion-v${{ steps.version.outputs.version }}-unsigned
-          name: JARVIS Companion v${{ steps.version.outputs.version }} (unsigned preview)
+          name: JARVIS v${{ steps.version.outputs.version }} (unsigned preview)
           prerelease: true
           body: |
-            Always-there macOS companion for JARVIS, with Chat, Notes, Agenda and voice capture.
+            JARVIS is now one app. The core, memory, tools, browser, Canvas
+            client and calendar engine are all inside the download — no
+            terminal, no separate daemon, no setup beyond choosing a model.
 
-            **Requires** the JARVIS daemon on the same machine (default
-            `http://127.0.0.1:8765`). Run `jarvis serve` first.
+            **First launch:** drag JARVIS to Applications, open it, pick a
+            model, paste your own API key. The key is stored in the macOS
+            Keychain and handed only to the private local core.
 
-            **This is an unsigned preview build.** It was produced because the
-            repository's Apple signing secrets are not configured. macOS may
-            block it on first launch. If you trust this repository, right-click
-            JARVIS in Applications and choose Open, or remove the quarantine
-            attribute:
+            Inside: a ChatGPT-grade chat workspace, notes, voice notes, an
+            embedded browser JARVIS can read, Google Calendar/iCloud/Outlook
+            via private iCal feeds, and read-only Canvas LMS with courses,
+            assignments and due dates.
+
+            **This is an unsigned preview build.** macOS may block it on first
+            launch. If you trust this repository, right-click JARVIS in
+            Applications and choose Open, or remove the quarantine attribute:
 
             ```bash
             xattr -dr com.apple.quarantine /Applications/JARVIS.app

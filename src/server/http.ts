@@ -6,6 +6,7 @@ import type {App} from '../core/app.js';
 import {JarvisError, errorMessage} from '../core/errors.js';
 import {getLogger} from '../core/logger.js';
 import {ApprovalBroker} from './approvals.js';
+import type {CalendarEvent} from '../integrations/types.js';
 
 const startedAt = Date.now();
 
@@ -57,7 +58,7 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
   hono.get('/v1/status', (c) =>
     c.json({
       name: app.config.assistant.name,
-      version: '2.1.0',
+      version: '3.0.0',
       uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       model: app.config.llm.model,
       provider: app.config.llm.provider,
@@ -352,24 +353,19 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
 
   hono.get('/v1/calendar', async (c) => {
     const google = app.integrations.services.google;
-    if (!google) {
+    const feedService = app.integrations.services.calendarFeeds;
+    const feeds = feedService.list();
+    const googleAuthorized = Boolean(google?.isAuthorized());
+    if (!googleAuthorized && !feeds.length) {
       return c.json({
         available: false,
-        configured: false,
+        configured: Boolean(google),
         authorized: false,
+        google: {configured: Boolean(google), authorized: false},
+        feeds: [],
         events: [],
         timezone: app.config.assistant.timezone,
-        message: 'Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, then run `jarvis auth google`.',
-      });
-    }
-    if (!google.isAuthorized()) {
-      return c.json({
-        available: true,
-        configured: true,
-        authorized: false,
-        events: [],
-        timezone: app.config.assistant.timezone,
-        message: 'Google Calendar is not connected. Run `jarvis auth google` in a terminal.',
+        message: 'Connect your calendar: add the private iCal address from Google Calendar in JARVIS → Agenda.',
       });
     }
     const days = Math.min(Math.max(Number(c.req.query('days') ?? 7) || 7, 1), 60);
@@ -377,21 +373,118 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
     from.setHours(0, 0, 0, 0);
     const to = new Date(from);
     to.setDate(to.getDate() + days);
+    const events: CalendarEvent[] = [];
+    const warnings: string[] = [];
+    if (googleAuthorized && google) {
+      try {
+        for (const event of await google.listEvents({timeMin: from.toISOString(), timeMax: to.toISOString(), maxResults: 250})) {
+          events.push({...event, all_day: /^\d{4}-\d{2}-\d{2}$/.test(event.start), source: 'Google Calendar'});
+        }
+      } catch (error) {
+        warnings.push(`Google Calendar: ${errorMessage(error)}`);
+      }
+    }
+    if (feeds.length) {
+      try {
+        const result = await feedService.events({timeMin: from.toISOString(), timeMax: to.toISOString()});
+        events.push(...result.events);
+        warnings.push(...result.warnings);
+      } catch (error) {
+        warnings.push(`Calendar feeds: ${errorMessage(error)}`);
+      }
+    }
+    const unique = new Map<string, CalendarEvent>();
+    for (const event of events) unique.set(`${String(event.summary)}|${String(event.start)}`, event);
+    const merged = [...unique.values()].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    return c.json({
+      available: true,
+      configured: true,
+      authorized: googleAuthorized || feeds.length > 0,
+      google: {configured: Boolean(google), authorized: googleAuthorized},
+      feeds,
+      days,
+      timezone: app.config.assistant.timezone,
+      calendarId: app.config.integrations.google.calendarId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      events: merged,
+      warnings,
+    });
+  });
+
+  hono.get('/v1/calendar/feeds', (c) => c.json({feeds: app.integrations.services.calendarFeeds.list()}));
+  hono.post('/v1/calendar/feeds', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {url?: unknown; label?: unknown};
+    if (typeof body.url !== 'string' || !body.url.trim()) return c.json({error: 'A calendar URL is required.'}, 400);
     try {
-      const events = await google.listEvents({timeMin: from.toISOString(), timeMax: to.toISOString(), maxResults: 250});
-      return c.json({
-        available: true,
-        configured: true,
-        authorized: true,
-        days,
-        timezone: app.config.assistant.timezone,
-        calendarId: app.config.integrations.google.calendarId,
-        from: from.toISOString(),
-        to: to.toISOString(),
-        events,
+      const feed = await app.integrations.services.calendarFeeds.add({
+        url: body.url,
+        label: typeof body.label === 'string' ? body.label.slice(0, 80) : undefined,
       });
+      return c.json({feed}, 201);
     } catch (error) {
-      return c.json({error: errorMessage(error), available: true, configured: true, authorized: false, events: []}, 502);
+      return c.json({error: errorMessage(error)}, error instanceof JarvisError ? 400 : 502);
+    }
+  });
+  hono.delete('/v1/calendar/feeds/:id', (c) =>
+    app.integrations.services.calendarFeeds.remove(c.req.param('id'))
+      ? c.json({ok: true})
+      : c.json({error: 'calendar feed not found'}, 404),
+  );
+
+  /* -------------------------------- Canvas ------------------------------- */
+
+  hono.get('/v1/canvas', async (c) => {
+    const canvas = app.integrations.services.canvas;
+    if (!canvas) {
+      return c.json({
+        available: false,
+        configured: false,
+        courses: [],
+        upcoming: [],
+        todo: [],
+        message: 'Connect Canvas in JARVIS → School with your school URL and an API token.',
+      });
+    }
+    try {
+      const [profile, courses, upcoming, todo] = await Promise.all([
+        canvas.status().catch(() => ({connected: false})),
+        canvas.courses(),
+        canvas.upcoming(25).catch(() => []),
+        canvas.todo(25).catch(() => []),
+      ]);
+      return c.json({available: true, configured: true, profile, courses, upcoming, todo});
+    } catch (error) {
+      return c.json({available: true, configured: true, courses: [], upcoming: [], todo: [], error: errorMessage(error)}, 502);
+    }
+  });
+  hono.get('/v1/canvas/courses', async (c) => {
+    const canvas = app.integrations.services.canvas;
+    if (!canvas) return c.json({error: 'Canvas is not connected.'}, 400);
+    try {
+      return c.json({courses: await canvas.courses()});
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, 502);
+    }
+  });
+  hono.get('/v1/canvas/assignments', async (c) => {
+    const canvas = app.integrations.services.canvas;
+    if (!canvas) return c.json({error: 'Canvas is not connected.'}, 400);
+    const courseId = c.req.query('course_id') || c.req.query('courseId') || '';
+    if (!courseId) return c.json({error: 'course_id is required.'}, 400);
+    try {
+      return c.json({assignments: await canvas.assignments(courseId, c.req.query('bucket') || 'upcoming')});
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, error instanceof JarvisError && error.code === 'VALIDATION' ? 400 : 502);
+    }
+  });
+  hono.get('/v1/canvas/todo', async (c) => {
+    const canvas = app.integrations.services.canvas;
+    if (!canvas) return c.json({error: 'Canvas is not connected.'}, 400);
+    try {
+      return c.json({todo: await canvas.todo(Number(c.req.query('limit') ?? 25))});
+    } catch (error) {
+      return c.json({error: errorMessage(error)}, 502);
     }
   });
 

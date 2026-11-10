@@ -65,12 +65,15 @@ const dom = {
   settingsLogin: $('setting-login'),
   settingsLaunch: $('setting-launch'),
   settingsHotkey: $('setting-hotkey'),
+  settingsExternal: $('setting-external'),
   settingsResult: $('settings-result'),
   tokenNote: $('token-note'),
   toast: $('toast'),
   modes: $('modes'),
   notesView: $('notes-view'),
   agendaView: $('agenda-view'),
+  canvasView: $('canvas-view'),
+  browserView: $('browser-view'),
   notesList: $('notes-list'),
   notesSearch: $('notes-search'),
   notesClear: $('notes-clear'),
@@ -141,6 +144,23 @@ function bindEvents() {
     }
   });
   dom.input.addEventListener('input', autoGrow);
+  dom.messages.addEventListener('click', (event) => {
+    const link = event.target.closest('a[data-external]');
+    if (link) {
+      event.preventDefault();
+      void bridge?.openExternal(link.getAttribute('data-external'));
+      return;
+    }
+    const copy = event.target.closest('.code-copy');
+    if (copy) {
+      const code = copy.closest('.code-block')?.querySelector('code');
+      if (!code) return;
+      void navigator.clipboard?.writeText(code.textContent || '').then(() => {
+        copy.textContent = 'Copied';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+      }).catch(() => {});
+    }
+  });
   dom.suggestions.addEventListener('click', (event) => {
     const button = event.target.closest('[data-prompt]');
     if (!button) return;
@@ -278,7 +298,12 @@ function messageNode(message) {
   const bubble = document.createElement('div');
   bubble.className = 'message-bubble';
   if (message.content) {
-    bubble.textContent = message.content;
+    if (message.role === 'assistant' && window.JarvisMarkdown) {
+      bubble.classList.add('markdown');
+      bubble.innerHTML = window.JarvisMarkdown.render(message.content, {streaming: message.streaming});
+    } else {
+      bubble.textContent = message.content;
+    }
   } else if (message.streaming) {
     const typing = document.createElement('span');
     typing.className = 'typing';
@@ -346,6 +371,13 @@ function humanTool(name) {
     gmail_read: 'Gmail',
     gmail_send: 'Gmail send',
     calendar_list_events: 'Calendar',
+    canvas_courses: 'Canvas courses',
+    canvas_assignments: 'Canvas assignments',
+    canvas_upcoming: 'Canvas due dates',
+    canvas_todo: 'Canvas to-do',
+    calendar_feed_list: 'Calendar feeds',
+    calendar_feed_add: 'Calendar added',
+    calendar_feed_remove: 'Calendar removed',
     create_task: 'Task',
     list_tasks: 'Tasks',
     notes_create: 'Note',
@@ -387,11 +419,13 @@ function addMessage(role, content, extra = {}) {
 
 async function sendMessage() {
   if (!bridge || state.streaming) return;
+  if (window.jarvisWorkspace?.beforeSend?.() === false) return;
   const message = dom.input.value.trim();
   if (!message) return;
   dom.input.value = '';
   autoGrow();
   addMessage('user', message);
+  const outgoing = window.jarvisWorkspace?.withPageContext?.(message) || message;
   const assistant = addMessage('assistant', '', {streaming: true});
   state.assistant = assistant;
   state.pendingApproval = null;
@@ -399,7 +433,7 @@ async function sendMessage() {
   setBusy(true);
   scrollToBottom(true);
   try {
-    const result = await bridge.startChat({message, conversationId: state.conversationId || undefined});
+    const result = await bridge.startChat({message: outgoing, conversationId: state.conversationId || undefined});
     state.requestId = result.requestId;
   } catch (error) {
     failAssistant(error.message || 'Could not reach JARVIS.');
@@ -473,6 +507,7 @@ function finishAssistant() {
   setBusy(false);
   scheduleRender();
   scrollToBottom(true);
+  window.jarvisWorkspace?.refreshConversations?.();
 }
 
 function failAssistant(message) {
@@ -572,6 +607,7 @@ function fillSettings() {
   dom.settingsLogin.checked = Boolean(settings.launchAtLogin);
   dom.settingsLaunch.checked = Boolean(settings.showOnLaunch);
   dom.settingsHotkey.value = settings.hotkey || 'CommandOrControl+Shift+J';
+  if (dom.settingsExternal) dom.settingsExternal.checked = Boolean(settings.useExternalDaemon);
 }
 
 async function saveSettings(testAfter) {
@@ -582,6 +618,7 @@ async function saveSettings(testAfter) {
     launchAtLogin: dom.settingsLogin.checked,
     showOnLaunch: dom.settingsLaunch.checked,
     hotkey: dom.settingsHotkey.value.trim(),
+    useExternalDaemon: Boolean(dom.settingsExternal?.checked),
     clearToken: dom.settingsClearToken.checked,
   };
   if (dom.settingsToken.value.trim()) payload.token = dom.settingsToken.value.trim();
@@ -845,7 +882,9 @@ function bindCaptureViews() {
       return;
     }
     if (action?.getAttribute('data-action') === 'agenda-setup') {
-      void bridge?.openExternal('https://github.com/WaxMedusa/JARVIS#google-calendar');
+      const panel = $('feeds-panel');
+      if (panel) panel.open = true;
+      $('feed-url')?.focus();
       return;
     }
     if (action?.getAttribute('data-action') === 'new-event') {
@@ -869,7 +908,7 @@ function bindCaptureViews() {
 }
 
 function switchView(view) {
-  if (!['chat', 'notes', 'agenda'].includes(view)) view = 'chat';
+  if (!['chat', 'notes', 'agenda', 'canvas', 'browser'].includes(view)) view = 'chat';
   if (state.recorder && state.recorder.context !== view) void stopRecording(true);
   state.view = view;
   for (const button of dom.modes?.querySelectorAll('[data-view]') || []) {
@@ -877,9 +916,10 @@ function switchView(view) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   }
+  for (const panel of document.querySelectorAll('[data-view-panel]')) {
+    panel.classList.toggle('hidden', panel.getAttribute('data-view-panel') !== view);
+  }
   dom.thread.classList.toggle('hidden', view !== 'chat');
-  dom.notesView.classList.toggle('hidden', view !== 'notes');
-  dom.agendaView.classList.toggle('hidden', view !== 'agenda');
   dom.composer.classList.toggle('hidden', view !== 'chat');
   if (view === 'chat') {
     if (state.pendingApproval) dom.approval.classList.remove('hidden');
@@ -889,6 +929,7 @@ function switchView(view) {
   }
   if (view === 'notes') void loadNotes();
   if (view === 'agenda') void loadAgenda();
+  window.jarvisWorkspace?.onViewChange?.(view);
 }
 
 async function loadNotes() {
@@ -1241,15 +1282,13 @@ function renderAgenda(data) {
     const title = document.createElement('h3');
     title.textContent = data?.configured ? 'One connection away' : 'Let JARVIS see your time';
     const copy = document.createElement('p');
-    copy.textContent = data?.message || 'Set up Google OAuth, then connect your calendar from the terminal.';
-    const command = document.createElement('code');
-    command.textContent = 'jarvis auth google';
+    copy.textContent = data?.message || 'Add your Google Calendar, iCloud or Outlook private iCal address below. No developer app, no terminal.';
     const guide = document.createElement('button');
     guide.type = 'button';
     guide.className = 'ghost tiny';
     guide.setAttribute('data-action', 'agenda-setup');
-    guide.textContent = 'Open setup guide';
-    connect.append(title, copy, command, guide);
+    guide.textContent = 'Add a calendar';
+    connect.append(title, copy, guide);
     dom.agendaList.append(connect);
     return;
   }
@@ -1384,6 +1423,7 @@ function setEventResult(text, kind) {
 
 function eventDateKey(event) {
   const raw = String(event.start || '');
+  if (event.all_day && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return raw.slice(0, 10);
@@ -1411,7 +1451,7 @@ function dayDateLabel(key) {
 
 function eventTimeLabel(event) {
   const raw = String(event.start || '');
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'All day';
+  if (event.all_day || /^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'All day';
   const start = formatTime(raw);
   const end = formatTime(event.end);
   return end ? `${start}\n${end}` : start;

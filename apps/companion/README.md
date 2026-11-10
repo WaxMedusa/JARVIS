@@ -1,181 +1,170 @@
-# JARVIS Companion
+# JARVIS for macOS
 
-An always-there macOS companion for JARVIS. It lives in the menu bar and as a
-frameless, translucent panel in the corner of your screen — summoned with
-`⌘⇧J`, a tray click, or the menu bar.
+JARVIS is now one desktop app. The core, memory, tools, browser, Canvas client
+and calendar engine ship inside `JARVIS.app`; there is no separate daemon and no
+terminal step. Download the DMG, drag JARVIS into Applications, open it, choose a
+model, and paste your own API key.
 
-It is a thin, secure client for the JARVIS daemon: memory, conversations, tools,
-approvals and streaming all come from the local backend. The renderer never
-holds an API token and never talks to the network directly.
+<p align="center"><strong>One app · your model · your Mac</strong></p>
 
-## What it does
+## First launch
 
-- **Always available** — menu-bar app with a floating panel, `always-on-top`,
-  all-spaces visibility, draggable/resizable layout, and remembered position.
-- **Streaming conversations** — token-by-token replies, live tool activity,
-  stop/reconnect, and conversation history from the daemon.
-- **Approval cards** — when a tool needs consent, the action appears in the
-  panel with Approve/Deny; the backend policy still enforces the final decision.
-- **Notes** — a searchable second brain with tags, pinning, archiving and a
-  full note editor. Capture the clipboard to notes from the tray too.
-- **Agenda** — a seven-day Google Calendar view with all-day/timed events and a
-  native event creator; when Google is not connected the panel explains how.
-- **Voice capture** — dictate into the composer or record a memo that becomes a
-  transcribed, optionally AI-structured note. Audio is stored by the daemon.
-- **Memory-aware status** — model, online state, memory count, note count, tool count.
-- **No browser chrome** — borderless glass panel, custom typography and arc
-  reactor motion; dock icon hidden (`LSUIElement`).
-- **Encrypted credentials** — remote daemon API tokens use Electron
-  `safeStorage` (macOS Keychain-backed) and never enter the renderer.
+1. Open **JARVIS** from Applications.
+2. Pick a provider: OpenAI, Anthropic, OpenRouter, Google Gemini, a local Ollama,
+   or any OpenAI-compatible endpoint.
+3. Paste the API key. JARVIS tests the model, starts its private core, and keeps
+   the key in the macOS Keychain.
+4. Ask for a briefing, open the browser, or connect your calendar and Canvas.
 
-## Requirements
+No configuration file, shell command, Node install or separate daemon is needed.
+The core starts automatically with the app and restarts if it stops. All data,
+memory and credentials stay on this Mac under
+`~/Library/Application Support/JARVIS/jarvis`.
 
-- macOS 11 or newer (Apple silicon or Intel)
-- Node.js 22+ for local development
-- A running JARVIS daemon:
-  ```bash
-  jarvis serve
-  ```
-  By default it listens on `http://127.0.0.1:8765`. If you bind it to a
-  non-loopback address, set `JARVIS_API_TOKEN` and paste that token into the
-  companion settings.
+## What is inside
 
-## Run it
+- **A real chat workspace** — streaming replies, Markdown, code blocks with copy,
+  tool activity, conversation history and approval cards, sized like a desktop
+  assistant rather than a menu-bar popover.
+- **A browser JARVIS can see** — a Chromium tab inside the app with its own
+  private session. JARVIS reads the page you are on when you send a message, so
+  “summarise this” and “what should I do here?” work on real pages. Page content
+  is treated as untrusted context, never as instructions.
+- **Memory and notes** — persistent memory, searchable notes, pinning, archiving,
+  clipboard capture, and voice memos that are transcribed and structured.
+- **Agenda** — Google Calendar, iCloud, Outlook or any private iCal feed. Add
+  the secret address in Agenda → Connected calendars; no developer OAuth app is
+  required. Google OAuth remains supported for creating events.
+- **Canvas LMS** — paste your school URL and a personal Canvas API token. See
+  active courses, upcoming assignments, points, submission state and your Canvas
+  to-do list. Read-only: JARVIS cannot submit work or change your account.
+- **Voice** — dictate a message or record a voice note. The core stores audio and
+  transcription locally, using your OpenAI-compatible audio endpoint.
+- **A menu-bar home** — closing the window keeps JARVIS running. Summon it with
+  `⌘⇧J`, the tray icon, or the Dock.
 
-Download the latest `JARVIS-Companion-*.dmg` from the repository's Releases
-page, open it, and drag JARVIS to Applications.
+## Models
 
-Release 2.1.0 is built by the workflow on GitHub macOS runners. When all five
-credentials below are configured, it signs with a Developer ID Application
-certificate, notarizes with Apple and publishes a stable release. When they are
-missing, it still builds and verifies the DMG, but publishes it as an explicitly
-labelled unsigned preview prerelease (`companion-v2.1.0-unsigned`) instead of
-presenting it as a signed release. The 2.0.0 artifacts predate signing and
-remain unsigned. Local builds are unsigned unless you configure the same
-credentials.
+| Provider | Notes |
+| --- | --- |
+| OpenAI | GPT-5.x, GPT-4.1, o-series. |
+| Anthropic | Claude Sonnet, Opus, Haiku. |
+| OpenRouter | One key for many models; uses the OpenAI-compatible API. |
+| Google Gemini | Gemini 2.5 Pro/Flash through Google's OpenAI-compatible endpoint. |
+| Ollama | Local models; no key. Start Ollama before choosing a local model. |
+| Custom | Any OpenAI-compatible base URL and key. |
 
-## Local development
+Change the model any time from the model chip in the sidebar or Settings →
+Change model. A new model is tested before the core restarts with it.
+
+## Security model
+
+- The renderer is sandboxed with `contextIsolation: true`, `nodeIntegration:
+  false`, and a narrow IPC bridge. It never sees the model key or daemon token.
+- Keys are encrypted with Electron `safeStorage` (macOS Keychain). They are
+  passed to the child core through its environment, never written into config.
+- The core binds to a random loopback port with a fresh per-run bearer token.
+- The embedded browser has a separate persistent session, denies camera, mic,
+  geolocation and notification permissions, and blocks non-http(s) navigation.
+  Only the active page's visible text can be shared, and only when you send it.
+- Page text is wrapped in an explicit untrusted-context block. The daemon still
+  enforces its own approval, path, shell and network policy.
+- CSP disables remote scripts and renderer network access. External links open in
+  your default browser.
+- Canvas is read-only. Google OAuth remains optional; private iCal feeds are the
+  recommended no-terminal path.
+
+## Build from source
+
+Requires macOS, Node 24 and npm.
 
 ```bash
+# repository root
+npm ci
+npm run build
+
 cd apps/companion
-npm install
+npm ci
 npm run assets
-npm start          # launches the real Electron panel
+npm run prepare:backend   # bundles the core into extraResources/backend/index.cjs
+npm run dist:mac          # x64 + arm64 DMG/ZIP in release/
 ```
 
-The panel talks to the daemon in the main process. Use `npm run dev` to open
-DevTools.
+`npm run prepare:backend` uses esbuild to bundle the TypeScript core into one
+CommonJS file. Electron's bundled Node (24) runs it with
+`ELECTRON_RUN_AS_NODE=1`; `node:sqlite` is built in, so there is no native
+rebuild. The staged core is excluded from git and included through
+electron-builder `extraResources`.
 
-### Design preview without Electron
-
-The renderer ships with a mock bridge so the complete UI can be opened in a
-normal browser:
+For local UI work without Electron:
 
 ```bash
 python3 -m http.server 4400 --bind 0.0.0.0 --directory src/renderer
 # open http://localhost:4400
 ```
 
-The badge in the corner confirms preview mode. Typing “brief me”, “what do you
-know about me”, “remember…”, or anything containing “email” exercises the
-streaming, tool, history and approval states. The Notes tab, note editor,
-Agenda, event creator and simulated voice-note flow run entirely against the
-preview bridge. The browser may deny microphone access for the real recorder;
-that is expected outside the packaged Electron app.
+The preview bridge simulates chat, notes, agenda, Canvas, onboarding and the
+browser. In the packaged app the real `preload.js` bridge replaces it.
 
-## Build a DMG
+## Releases
+
+`.github/workflows/release-macos.yml` runs on macOS 26 Intel and Apple silicon.
+It installs and builds the core, runs both test suites, bundles the core, builds
+the app, then verifies:
+
+- `JARVIS.app`, `app.asar`, the embedded `backend/index.cjs` and Info.plist;
+- that the core starts and answers `/health` with no terminal;
+- the DMG (`hdiutil verify`) and ZIP (`unzip -tq`).
+
+With all five Apple secrets configured, it signs, notarizes, staples and
+publishes a stable `companion-v<version>` release. Without them it still builds
+and verifies everything, then publishes an unsigned preview
+`companion-v<version>-unsigned`. macOS may block unsigned builds; right-click →
+Open, or:
 
 ```bash
-npm install
-npm run assets
-npm run dist:mac
+xattr -dr com.apple.quarantine /Applications/JARVIS.app
 ```
 
-Artifacts land in `release/`: separate `x64` and `arm64` DMGs and ZIPs. Local
-builds are unsigned by default; configure the credentials below to sign and
-notarize them.
+Only do that for source you trust.
 
-The GitHub workflow `.github/workflows/release-macos.yml` does this on a macOS
-runner and publishes a release when `apps/companion/**` lands on `main` (or when
-run manually). It uses the version in `package.json` as the tag
-`companion-v<version>`, appending `-unsigned` when signing secrets are absent.
-With credentials, notarization is mandatory and the workflow verifies the
-signed app with `codesign`, `xcrun stapler` and `spctl` before publishing a
-stable release.
-
-### Signed release setup
-
-Add these as **repository secrets** under Settings → Secrets and variables →
-Actions. All five are required; the build stops with an annotation naming any
-that are missing.
+### Signed release secrets
 
 | Secret | Value |
 | --- | --- |
-| `CSC_LINK` | Base64 of the **Developer ID Application** certificate and private key, exported as `.p12` |
-| `CSC_KEY_PASSWORD` | Password used when exporting that `.p12` |
-| `APPLE_ID` | Apple ID email for the developer team |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password from [appleid.apple.com](https://appleid.apple.com) |
+| `CSC_LINK` | Base64 of the **Developer ID Application** `.p12` |
+| `CSC_KEY_PASSWORD` | Password for that `.p12` |
+| `APPLE_ID` | Apple ID email |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password |
 | `APPLE_TEAM_ID` | 10-character Apple Developer Team ID |
-
-Create a **Developer ID Application** certificate in the Apple Developer
-portal, install it in Keychain Access, then export the certificate and its
-private key as a `.p12`. Base64-encode it without line breaks:
-
-```bash
-base64 -i DeveloperID.p12 | tr -d '\n' | pbcopy
-```
-
-Paste the result into `CSC_LINK`. Never commit the certificate, its password, or
-the app-specific password. The workflow passes them to electron-builder only
-for the build step; it uses the Apple notary service and does not upload the
-credentials as artifacts. When the five secrets are present, CI also enables
-`forceCodeSigning` and mandatory notarization, so a missing or invalid
-certificate stops the build instead of producing a broken signed release.
-
-## Security model
-
-- `contextIsolation: true`, `nodeIntegration: false`, sandboxed renderer.
-- Only a narrow IPC bridge is exposed: settings, status, chat, approvals,
-  history, notes, calendar, audio uploads/transcription, clipboard capture and
-  hide/quit.
-- Electron's permission handler allows `media` only for audio requested by the
-  companion window; camera and screen capture stay denied. The packaged app
-  declares `NSMicrophoneUsageDescription`. Recording stops when the user stops
-  it or after five minutes.
-- All daemon requests happen in the main process; the API token is encrypted at
-  rest with `safeStorage` and is never returned to the renderer.
-- CSP disables remote scripts, remote connections, objects and form actions.
-- Navigation and `window.open` are denied; only explicit HTTPS links open in the
-  default browser.
-- Clipboard capture is user-triggered and truncated to 8,000 characters before
-  it is sent to the daemon.
-- The companion never bypasses JARVIS policy. Every tool still goes through the
-  backend's approval, path, shell and network controls.
 
 ## Known limitations
 
 - Signed/notarized releases require a paid Apple Developer account and the five
-  repository secrets above. Without them the workflow publishes an unsigned
-  preview prerelease (`companion-v<version>-unsigned`) instead.
-- Uses the daemon's HTTP API; it cannot start `jarvis serve` for you.
-- Voice transcription needs an audio-capable OpenAI-compatible endpoint
-  configured on the daemon. The companion records audio, but the daemon owns
-  transcription and note storage.
-- Google Agenda needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
-  `jarvis auth google` on the daemon.
-- The global shortcut depends on macOS accepting the Electron accelerator.
-  Settings reports when a shortcut is rejected.
-- A second instance focuses the existing panel rather than opening another.
+  secrets above. Otherwise the downloadable build is explicitly unsigned.
+- A local Ollama model needs Ollama running on the same Mac; JARVIS does not
+  bundle model weights.
+- Google Calendar creation still requires Google OAuth. Reading Apple/Google/
+  Outlook calendars through private iCal feeds works without it.
+- Canvas tokens are read-only in JARVIS by design; assignment submission is not
+  implemented.
+- The app targets macOS 11+, Intel and Apple silicon. Windows/Linux are not
+  packaged.
 
 ## Layout
 
 ```
-src/main/main.js            panel, tray, hotkey, IPC, lifecycle
-src/main/jarvis-client.js   HTTP/SSE daemon client
-src/main/sse.js             dependency-free SSE parser
-src/main/settings.js        validation + defaults
-src/main/preload.js         context-isolated bridge
-src/renderer/               HTML, CSS, renderer state machine, preview mock
-scripts/generate-assets.mjs icon + template tray icons
-test/                       node:test coverage for SSE, client, settings
+src/main/main.js             window, tray, hotkey, IPC, embedded browser
+src/main/backend.js          managed core process, ports and health
+src/main/models.js           provider validation and live model test
+src/main/settings.js         encrypted settings schema and validation
+src/main/jarvis-client.js    HTTP/SSE client for the core
+src/main/preload.js          context-isolated bridge
+src/renderer/index.html      desktop shell
+src/renderer/app.js          chat, notes, agenda and voice
+src/renderer/workspace.js    onboarding, sidebar, Canvas, feeds, browser
+src/renderer/markdown.js     safe Markdown renderer
+src/renderer/styles-v3.css   desktop layout
+scripts/prepare-backend.mjs  bundles the core into extraResources
+test/                        node:test coverage
 ```

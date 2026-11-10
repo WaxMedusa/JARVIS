@@ -1,6 +1,7 @@
 node_modules/
 dist/
 apps/companion/release/
+apps/companion/extraResources/
 .env
 .env.*
 !.env.example

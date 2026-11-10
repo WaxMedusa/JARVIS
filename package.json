@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "JARVIS - a personal AI chief-of-staff with persistent memory, tools and integrations",
@@ -37,6 +37,7 @@
     "@types/mailparser": "^3.9.0",
     "@types/node": "^26.6.6",
     "@types/nodemailer": "^8.0.2",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.1.0"

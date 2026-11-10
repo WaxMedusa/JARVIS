@@ -3,23 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; media-src 'self' blob:">
   <title>JARVIS</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles-v3.css">
 </head>
 <body>
-  <div class="shell" id="shell">
+  <div class="shell v3" id="shell">
     <div class="ambient" aria-hidden="true"></div>
 
-    <header class="topbar">
+    <header class="topbar v3-topbar">
+      <div class="window-drag" aria-hidden="true"></div>
       <div class="brand">
         <div class="reactor" id="reactor" aria-hidden="true"><span class="reactor-core"></span></div>
         <div class="brand-copy">
           <h1>JARVIS</h1>
-          <p id="status-line">Connecting to core…</p>
+          <p id="status-line">Starting your core…</p>
         </div>
       </div>
       <div class="top-actions">
+        <span class="core-pill" id="core-pill" title="Core status"><span class="core-dot" id="core-dot"></span><span id="core-text">Starting</span></span>
         <button class="icon-btn" id="history-btn" aria-label="Conversation history" title="History">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.5v5l3.2 1.9"/><path d="M4.2 8.2A8.4 8.4 0 0 1 6.7 5"/></svg>
         </button>
@@ -35,153 +38,258 @@
       </div>
     </header>
 
+    <div class="app-body">
+      <nav class="rail" id="modes" aria-label="Primary views">
+        <button type="button" class="mode active" data-view="chat" aria-selected="true" title="Chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9H9l-4 3v-12Z"/><path d="M8.5 10h7M8.5 12.8h4.5"/></svg>
+          <span>Chat</span>
+        </button>
+        <button type="button" class="mode" data-view="notes" aria-selected="false" title="Notes">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h9l3 3v12H6z"/><path d="M9 9h6M9 12.5h6M9 16h4"/></svg>
+          <span>Notes</span>
+        </button>
+        <button type="button" class="mode" data-view="agenda" aria-selected="false" title="Agenda">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="6" width="15" height="13.5" rx="2"/><path d="M8 4v4M16 4v4M4.5 10h15M8 13.5h3M8 16.5h6"/></svg>
+          <span>Agenda</span>
+        </button>
+        <button type="button" class="mode" data-view="canvas" aria-selected="false" title="Canvas">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5 20 8v8l-8 3.5L4 16V8l8-3.5Z"/><path d="M4 8l8 3.5L20 8M12 11.5V19.5"/></svg>
+          <span>School</span>
+        </button>
+        <button type="button" class="mode" data-view="browser" aria-selected="false" title="Browser">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M4 12h16M12 3.8c2.2 2.3 3.3 5 3.3 8.2s-1.1 5.9-3.3 8.2c-2.2-2.3-3.3-5-3.3-8.2S9.8 6.1 12 3.8Z"/></svg>
+          <span>Browser</span>
+        </button>
+      </nav>
+
+      <aside class="sidebar" aria-label="Conversations">
+        <button class="new-chat-side" id="new-chat-side" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>New chat</span>
+        </button>
+        <div class="sidebar-scroll">
+          <p class="sidebar-label">Recent</p>
+          <div id="conversation-list" class="conversation-list">
+            <p class="sidebar-empty">Your conversations will live here.</p>
+          </div>
+        </div>
+        <button class="model-chip" id="model-chip" type="button" title="Change model">
+          <span class="model-dot" aria-hidden="true"></span>
+          <span class="model-copy">
+            <span class="model-label">Model</span>
+            <span id="model-chip-label">Choose a model</span>
+          </span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+        </button>
+      </aside>
+
+      <main class="main">
+        <section class="view chat-view" data-view-panel="chat">
+          <div class="thread" id="thread-scroll">
+            <section class="empty" id="empty-state">
+              <div class="halo" aria-hidden="true">
+                <div class="halo-ring ring-a"></div>
+                <div class="halo-ring ring-b"></div>
+                <div class="halo-core"></div>
+              </div>
+              <p class="eyebrow">Personal intelligence</p>
+              <h2 id="greeting">Good evening, sir.</h2>
+              <p class="empty-copy">Your memory, calendar, courses, the web and the wider world — one quiet interface.</p>
+              <div class="suggestions" id="suggestions">
+                <button type="button" class="suggestion" data-prompt="Brief me on today. What needs my attention?">
+                  <span class="suggestion-kicker">Briefing</span>
+                  <span>What needs my attention today?</span>
+                </button>
+                <button type="button" class="suggestion" data-prompt="What do you know about me? Summarise my profile and the most important things you remember.">
+                  <span class="suggestion-kicker">Memory</span>
+                  <span>What do you know about me?</span>
+                </button>
+                <button type="button" class="suggestion" data-prompt="Look at my calendar and Canvas assignments and help me plan the next week.">
+                  <span class="suggestion-kicker">Planning</span>
+                  <span>Plan my week around everything.</span>
+                </button>
+                <button type="button" class="suggestion" data-prompt="Search the web for the most important AI news today and explain why it matters to me.">
+                  <span class="suggestion-kicker">Research</span>
+                  <span>Catch me up on AI today.</span>
+                </button>
+              </div>
+            </section>
+            <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
+          </div>
+
+          <section class="approval hidden" id="approval-card" aria-live="assertive">
+            <div class="approval-head">
+              <span class="approval-shield" aria-hidden="true">!</span>
+              <div>
+                <p class="eyebrow danger">Approval required</p>
+                <h3 id="approval-title">Action pending</h3>
+              </div>
+            </div>
+            <p class="approval-summary" id="approval-summary"></p>
+            <div class="approval-actions">
+              <button type="button" class="ghost danger-text" id="deny-btn">Deny</button>
+              <button type="button" class="primary small" id="approve-btn">Approve</button>
+            </div>
+          </section>
+
+          <form class="composer" id="composer" autocomplete="off">
+            <div class="page-chip hidden" id="page-chip">
+              <span class="page-chip-dot" aria-hidden="true"></span>
+              <span id="page-chip-label">Page context on</span>
+              <button type="button" id="page-chip-clear" aria-label="Remove page context">×</button>
+            </div>
+            <div class="composer-inner">
+              <textarea id="input" rows="1" maxlength="32000" placeholder="Ask JARVIS anything…" aria-label="Message JARVIS"></textarea>
+              <button type="button" class="mic-btn" id="mic-btn" aria-label="Dictate a message" aria-pressed="false" title="Dictate">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
+              </button>
+              <button type="submit" class="send-btn" id="send-btn" aria-label="Send message" title="Send">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V7M7.5 11.5 12 7l4.5 4.5"/></svg>
+              </button>
+            </div>
+            <div class="composer-hint">
+              <span><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline</span>
+              <span id="hotkey-hint">⌘⇧J to summon</span>
+            </div>
+          </form>
+        </section>
+
+        <section class="view panel-view hidden" id="notes-view" data-view-panel="notes" aria-label="Notes">
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">Second brain</p>
+              <h2>Notes</h2>
+              <p class="view-sub" id="notes-count">Loading…</p>
+            </div>
+            <div class="view-actions">
+              <button type="button" class="icon-btn archive-toggle" id="notes-archive-toggle" aria-label="Show archived notes" aria-pressed="false" title="Show archived notes">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15v12.5h-15z"/><path d="M4.5 7 6.5 4.5h11L19.5 7M9.5 11h5M9.5 14.5h5"/></svg>
+              </button>
+              <button type="button" class="round-btn" id="record-note-btn" aria-label="Record a voice note" aria-pressed="false" title="Record a voice note">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
+              </button>
+              <button type="button" class="round-btn solid" id="new-note-btn" aria-label="New note" title="New note">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="search-row">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg>
+            <input id="notes-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search notes and transcripts…" aria-label="Search notes">
+            <button type="button" class="search-clear hidden" id="notes-clear" aria-label="Clear search">×</button>
+          </div>
+          <div class="recording-card hidden" id="note-recording" aria-live="polite">
+            <span class="record-pulse" aria-hidden="true"></span>
+            <div class="recording-copy">
+              <strong id="record-title">Listening…</strong>
+              <span id="record-timer">0:00</span>
+            </div>
+            <button type="button" class="ghost tiny" id="record-cancel">Cancel</button>
+            <button type="button" class="primary small" id="record-stop">Stop &amp; note</button>
+          </div>
+          <div class="notes-list" id="notes-list">
+            <div class="view-loading"><span class="tool-spinner"></span> Reading your notes…</div>
+          </div>
+        </section>
+
+        <section class="view panel-view hidden" id="agenda-view" data-view-panel="agenda" aria-label="Agenda">
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">The shape of time</p>
+              <h2>Agenda</h2>
+              <p class="view-sub" id="agenda-sub">Your next seven days</p>
+            </div>
+            <div class="view-actions">
+              <button type="button" class="icon-btn" id="agenda-refresh" aria-label="Refresh calendar" title="Refresh calendar">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8.5A7.5 7.5 0 1 0 19.2 14"/><path d="M19 4.5v4h-4"/></svg>
+              </button>
+              <button type="button" class="round-btn solid" id="new-event-btn" aria-label="New calendar event" title="New event">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="agenda-status hidden" id="agenda-status"></div>
+          <div class="agenda-list" id="agenda-list">
+            <div class="view-loading"><span class="tool-spinner"></span> Checking your calendar…</div>
+          </div>
+          <details class="feeds" id="feeds-panel">
+            <summary><span>Connected calendars</span><span class="feeds-count" id="feeds-count">iCal feeds</span></summary>
+            <p class="feeds-help">Works with Google Calendar, iCloud, Outlook and anything with a private iCal address. In Google Calendar: Settings → your calendar → <strong>Secret address in iCal format</strong>.</p>
+            <form id="feed-form" class="feed-form" autocomplete="off">
+              <input id="feed-url" type="url" spellcheck="false" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" aria-label="Calendar iCal URL">
+              <input id="feed-label" type="text" maxlength="80" placeholder="Name (optional)" aria-label="Calendar name">
+              <button type="submit" class="primary small" id="feed-add">Add</button>
+            </form>
+            <div class="settings-result hidden" id="feed-result"></div>
+            <div class="feed-list" id="feed-list"></div>
+          </details>
+        </section>
+
+        <section class="view panel-view hidden" id="canvas-view" data-view-panel="canvas" aria-label="Canvas">
+          <div class="view-head">
+            <div>
+              <p class="eyebrow">School</p>
+              <h2>Canvas</h2>
+              <p class="view-sub" id="canvas-sub">Courses, due dates and what is coming next</p>
+            </div>
+            <div class="view-actions">
+              <button type="button" class="icon-btn" id="canvas-refresh" aria-label="Refresh Canvas" title="Refresh Canvas">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8.5A7.5 7.5 0 1 0 19.2 14"/><path d="M19 4.5v4h-4"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="canvas-body" id="canvas-body">
+            <div class="view-loading"><span class="tool-spinner"></span> Checking Canvas…</div>
+          </div>
+        </section>
+
+        <section class="view panel-view browser-view hidden" id="browser-view" data-view-panel="browser" aria-label="Browser">
+          <div class="browser-toolbar">
+            <button type="button" class="icon-btn" id="browser-back" aria-label="Back" title="Back">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
+            </button>
+            <button type="button" class="icon-btn" id="browser-forward" aria-label="Forward" title="Forward">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg>
+            </button>
+            <button type="button" class="icon-btn" id="browser-reload" aria-label="Reload" title="Reload">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8.5A7.5 7.5 0 1 0 19.2 14"/><path d="M19 4.5v4h-4"/></svg>
+            </button>
+            <form class="browser-form" id="browser-form" autocomplete="off">
+              <input id="browser-url" type="text" spellcheck="false" placeholder="Search the web or enter an address" aria-label="Browser address">
+              <button type="submit" class="icon-btn" id="browser-go" aria-label="Go">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 7l5 5-5 5"/></svg>
+              </button>
+            </form>
+            <button type="button" class="chip active" id="browser-use-page" aria-pressed="true" title="Share this page with JARVIS">Page context</button>
+            <button type="button" class="primary small" id="browser-ask">Ask about page</button>
+            <button type="button" class="icon-btn" id="browser-external" aria-label="Open in your browser" title="Open in your browser">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 14v4.5H5.5V6H10"/></svg>
+            </button>
+          </div>
+          <div class="browser-meta">
+            <span id="browser-title">JARVIS Browser</span>
+            <span id="browser-status">Private session · only this page is shared with JARVIS</span>
+          </div>
+          <div class="browser-stage" id="browser-stage">
+            <div class="browser-placeholder" id="browser-placeholder">
+              <div class="browser-orbit" aria-hidden="true"><span></span></div>
+              <strong>A browser JARVIS can see</strong>
+              <p>Search, open your work apps, then ask JARVIS about the page. It reads the page you are on — never the rest of your Mac.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
     <button class="offline-banner hidden" id="offline-banner" type="button">
       <span class="offline-dot"></span>
-      <span>JARVIS core is offline. Start <code>jarvis serve</code>.</span>
+      <span id="offline-text">JARVIS core is starting…</span>
       <span class="offline-action">Settings →</span>
     </button>
 
-    <nav class="modes" id="modes" aria-label="Primary views">
-      <button type="button" class="mode active" data-view="chat" aria-selected="true">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9H9l-4 3v-12Z"/><path d="M8.5 10h7M8.5 12.8h4.5"/></svg>
-        <span>Chat</span>
-      </button>
-      <button type="button" class="mode" data-view="notes" aria-selected="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h9l3 3v12H6z"/><path d="M9 9h6M9 12.5h6M9 16h4"/></svg>
-        <span>Notes</span>
-      </button>
-      <button type="button" class="mode" data-view="agenda" aria-selected="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="6" width="15" height="13.5" rx="2"/><path d="M8 4v4M16 4v4M4.5 10h15M8 13.5h3M8 16.5h6"/></svg>
-        <span>Agenda</span>
-      </button>
-    </nav>
-
-    <main class="thread" id="thread-scroll">
-      <section class="empty" id="empty-state">
-        <div class="halo" aria-hidden="true">
-          <div class="halo-ring ring-a"></div>
-          <div class="halo-ring ring-b"></div>
-          <div class="halo-core"></div>
-        </div>
-        <p class="eyebrow">Personal intelligence</p>
-        <h2 id="greeting">Good evening, sir.</h2>
-        <p class="empty-copy">Your memory, calendar, tasks and the wider world — one quiet interface.</p>
-        <div class="suggestions" id="suggestions">
-          <button type="button" class="suggestion" data-prompt="Brief me on today. What needs my attention?">
-            <span class="suggestion-kicker">Briefing</span>
-            <span>What needs my attention today?</span>
-          </button>
-          <button type="button" class="suggestion" data-prompt="What do you know about me? Summarise my profile and the most important things you remember.">
-            <span class="suggestion-kicker">Memory</span>
-            <span>What do you know about me?</span>
-          </button>
-          <button type="button" class="suggestion" data-prompt="Help me plan my week around my open tasks and priorities.">
-            <span class="suggestion-kicker">Planning</span>
-            <span>Plan my week with me.</span>
-          </button>
-          <button type="button" class="suggestion" data-prompt="Search the web for the most important AI news today and explain why it matters to me.">
-            <span class="suggestion-kicker">Research</span>
-            <span>Catch me up on AI today.</span>
-          </button>
-        </div>
-      </section>
-      <div class="messages" id="messages" role="log" aria-live="polite" aria-relevant="additions text"></div>
-    </main>
-
-    <section class="panel-view hidden" id="notes-view" aria-label="Notes">
-      <div class="view-head">
-        <div>
-          <p class="eyebrow">Second brain</p>
-          <h2>Notes</h2>
-          <p class="view-sub" id="notes-count">Loading…</p>
-        </div>
-        <div class="view-actions">
-          <button type="button" class="icon-btn archive-toggle" id="notes-archive-toggle" aria-label="Show archived notes" aria-pressed="false" title="Show archived notes">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7h15v12.5h-15z"/><path d="M4.5 7 6.5 4.5h11L19.5 7M9.5 11h5M9.5 14.5h5"/></svg>
-          </button>
-          <button type="button" class="round-btn" id="record-note-btn" aria-label="Record a voice note" aria-pressed="false" title="Record a voice note">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
-          </button>
-          <button type="button" class="round-btn solid" id="new-note-btn" aria-label="New note" title="New note">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="search-row">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg>
-        <input id="notes-search" type="search" autocomplete="off" spellcheck="false" placeholder="Search notes and transcripts…" aria-label="Search notes">
-        <button type="button" class="search-clear hidden" id="notes-clear" aria-label="Clear search">×</button>
-      </div>
-      <div class="recording-card hidden" id="note-recording" aria-live="polite">
-        <span class="record-pulse" aria-hidden="true"></span>
-        <div class="recording-copy">
-          <strong id="record-title">Listening…</strong>
-          <span id="record-timer">0:00</span>
-        </div>
-        <button type="button" class="ghost tiny" id="record-cancel">Cancel</button>
-        <button type="button" class="primary small" id="record-stop">Stop &amp; note</button>
-      </div>
-      <div class="notes-list" id="notes-list">
-        <div class="view-loading"><span class="tool-spinner"></span> Reading your notes…</div>
-      </div>
-    </section>
-
-    <section class="panel-view hidden" id="agenda-view" aria-label="Agenda">
-      <div class="view-head">
-        <div>
-          <p class="eyebrow">The shape of time</p>
-          <h2>Agenda</h2>
-          <p class="view-sub" id="agenda-sub">Your next seven days</p>
-        </div>
-        <div class="view-actions">
-          <button type="button" class="icon-btn" id="agenda-refresh" aria-label="Refresh calendar" title="Refresh calendar">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8.5A7.5 7.5 0 1 0 19.2 14"/><path d="M19 4.5v4h-4"/></svg>
-          </button>
-          <button type="button" class="round-btn solid" id="new-event-btn" aria-label="New calendar event" title="New event">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="agenda-status hidden" id="agenda-status"></div>
-      <div class="agenda-list" id="agenda-list">
-        <div class="view-loading"><span class="tool-spinner"></span> Checking your calendar…</div>
-      </div>
-    </section>
-
-    <section class="approval hidden" id="approval-card" aria-live="assertive">
-      <div class="approval-head">
-        <span class="approval-shield" aria-hidden="true">!</span>
-        <div>
-          <p class="eyebrow danger">Approval required</p>
-          <h3 id="approval-title">Action pending</h3>
-        </div>
-      </div>
-      <p class="approval-summary" id="approval-summary"></p>
-      <div class="approval-actions">
-        <button type="button" class="ghost danger-text" id="deny-btn">Deny</button>
-        <button type="button" class="primary small" id="approve-btn">Approve</button>
-      </div>
-    </section>
-
-    <form class="composer" id="composer" autocomplete="off">
-      <div class="composer-inner">
-        <textarea id="input" rows="1" maxlength="32000" placeholder="Ask JARVIS anything…" aria-label="Message JARVIS"></textarea>
-        <button type="button" class="mic-btn" id="mic-btn" aria-label="Dictate a message" aria-pressed="false" title="Dictate">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2V21M8.8 21h6.4"/></svg>
-        </button>
-        <button type="submit" class="send-btn" id="send-btn" aria-label="Send message" title="Send">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V7M7.5 11.5 12 7l4.5 4.5"/></svg>
-        </button>
-      </div>
-      <div class="composer-hint">
-        <span><kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline</span>
-        <span id="hotkey-hint">⌘⇧J to summon</span>
-      </div>
-    </form>
-
     <footer class="statusbar">
-      <span class="status-item"><span class="live-dot" id="live-dot"></span><span id="foot-state">Connecting</span></span>
-      <span class="status-item" id="foot-meta">memory — · tools —</span>
+      <span class="status-item"><span class="live-dot" id="live-dot"></span><span id="foot-state">Starting</span></span>
+      <span class="status-item" id="foot-meta">memory — · notes — · tools —</span>
     </footer>
   </div>
 
@@ -196,20 +304,41 @@
       </button>
     </div>
     <form id="settings-form" class="sheet-body">
-      <label class="field">
-        <span>Daemon URL</span>
-        <input id="setting-url" type="url" spellcheck="false" placeholder="http://127.0.0.1:8765">
-        <small>JARVIS listens on loopback by default. Keep it local or use a private tunnel.</small>
-      </label>
-      <label class="field">
-        <span>API token</span>
-        <input id="setting-token" type="password" spellcheck="false" placeholder="Only needed for a remote daemon">
-        <small id="token-note">Stored encrypted with the macOS Keychain-backed safe storage.</small>
-      </label>
-      <label class="check-row">
-        <input id="setting-clear-token" type="checkbox">
-        <span>Clear the saved API token</span>
-      </label>
+      <div class="model-card">
+        <div>
+          <p class="eyebrow">Intelligence</p>
+          <strong id="setting-model">No model yet</strong>
+          <small id="core-state-text">Core stopped</small>
+        </div>
+        <div class="model-card-actions">
+          <button type="button" class="ghost tiny" id="restart-core-btn">Restart core</button>
+          <button type="button" class="primary small" id="change-model-btn">Change model</button>
+        </div>
+      </div>
+      <p class="settings-note">The model key is stored in the macOS Keychain and handed to the private local core at launch. It never enters the renderer, a log, or this repository.</p>
+
+      <details class="advanced">
+        <summary>Advanced connection</summary>
+        <label class="field">
+          <span>Daemon URL</span>
+          <input id="setting-url" type="url" spellcheck="false" placeholder="http://127.0.0.1:8765">
+          <small>Leave managed mode on unless you run your own <code>jarvis serve</code>.</small>
+        </label>
+        <label class="check-row">
+          <input id="setting-external" type="checkbox">
+          <span>Use my own JARVIS daemon</span>
+        </label>
+        <label class="field">
+          <span>API token</span>
+          <input id="setting-token" type="password" spellcheck="false" placeholder="Only needed for a remote daemon">
+          <small id="token-note">Stored encrypted with the macOS Keychain-backed safe storage.</small>
+        </label>
+        <label class="check-row">
+          <input id="setting-clear-token" type="checkbox">
+          <span>Clear the saved API token</span>
+        </label>
+      </details>
+
       <div class="toggle-list">
         <label class="check-row">
           <input id="setting-top" type="checkbox">
@@ -221,7 +350,7 @@
         </label>
         <label class="check-row">
           <input id="setting-launch" type="checkbox">
-          <span>Show the panel when JARVIS starts</span>
+          <span>Show the window when JARVIS starts</span>
         </label>
       </div>
       <label class="field">
@@ -298,10 +427,10 @@
   <section class="sheet hidden" id="event-sheet" aria-label="New calendar event" aria-modal="true" role="dialog">
     <div class="sheet-head">
       <div>
-        <p class="eyebrow">Google Calendar</p>
+        <p class="eyebrow">Calendar</p>
         <h2>New event</h2>
       </div>
-      <button type="button" class="icon-btn" id="event-close" aria-label="Close event editor">
+      <button class="icon-btn" id="event-close" aria-label="Close event editor">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
       </button>
     </div>
@@ -336,9 +465,86 @@
     </form>
   </section>
 
+  <div class="onboarding hidden" id="onboarding" role="dialog" aria-modal="true" aria-labelledby="ob-title-1">
+    <div class="onboarding-card">
+      <div class="ob-top">
+        <div class="ob-brand"><span class="ob-mark" aria-hidden="true"></span><span>JARVIS</span></div>
+        <span class="ob-step" id="ob-step">1 of 3</span>
+        <button type="button" class="icon-btn" id="ob-close" aria-label="Close setup">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <section class="ob-pane" id="ob-step-1">
+        <div class="ob-halo" aria-hidden="true"><span></span></div>
+        <p class="eyebrow">Welcome</p>
+        <h1 id="ob-title-1">Your own JARVIS,<br>running on your Mac.</h1>
+        <p class="ob-lead">One app. Choose a model once, and everything is already inside: memory, notes, your calendar, Canvas, and a browser JARVIS can read.</p>
+        <ul class="ob-points">
+          <li><span>01</span><div><strong>Private by default</strong><p>Your core, memory and keys stay on this Mac. Nothing to install, no terminal.</p></div></li>
+          <li><span>02</span><div><strong>Bring your own model</strong><p>OpenAI, Anthropic, OpenRouter, a local Ollama, or any OpenAI-compatible endpoint.</p></div></li>
+          <li><span>03</span><div><strong>Your whole day</strong><p>Calendar, assignments, notes, the web and your other tools — with your approval before anything changes.</p></div></li>
+        </ul>
+        <button type="button" class="primary wide" id="ob-next">Choose a model</button>
+      </section>
+
+      <section class="ob-pane hidden" id="ob-step-2">
+        <p class="eyebrow">Connect intelligence</p>
+        <h2>Choose your model</h2>
+        <p class="ob-lead">Pick a provider, paste a key, and JARVIS will test it before saving. The key goes straight into the macOS Keychain.</p>
+        <div class="provider-grid" id="ob-provider-grid">
+          <button type="button" class="provider" data-provider="openai"><strong>OpenAI</strong><span>GPT-5, GPT-4.1, o-series</span></button>
+          <button type="button" class="provider" data-provider="anthropic"><strong>Anthropic</strong><span>Claude Sonnet, Opus, Haiku</span></button>
+          <button type="button" class="provider" data-provider="openrouter"><strong>OpenRouter</strong><span>Hundreds of models, one key</span></button>
+          <button type="button" class="provider" data-provider="google"><strong>Google Gemini</strong><span>Gemini Pro and Flash</span></button>
+          <button type="button" class="provider" data-provider="ollama"><strong>Ollama</strong><span>Local models, no key</span></button>
+          <button type="button" class="provider" data-provider="custom"><strong>Custom</strong><span>Any OpenAI-compatible API</span></button>
+        </div>
+        <div class="ob-fields">
+          <label class="field">
+            <span>Model</span>
+            <input id="ob-model" type="text" list="ob-models" spellcheck="false" placeholder="gpt-5.1" autocomplete="off">
+            <datalist id="ob-models"></datalist>
+          </label>
+          <label class="field" id="ob-key-field">
+            <span>API key</span>
+            <input id="ob-key" type="password" spellcheck="false" placeholder="Paste your key" autocomplete="off">
+            <small id="ob-key-help">Stored in the macOS Keychain. Never synced or committed.</small>
+          </label>
+          <label class="field hidden" id="ob-base-field">
+            <span>API base URL</span>
+            <input id="ob-base" type="url" spellcheck="false" placeholder="https://api.example.com/v1" autocomplete="off">
+            <small>Include the version path, for example <code>/v1</code>.</small>
+          </label>
+        </div>
+        <div class="ob-result hidden" id="ob-result" role="status"></div>
+        <div class="ob-actions">
+          <button type="button" class="ghost" id="ob-back">Back</button>
+          <button type="button" class="primary" id="ob-test">Test &amp; continue</button>
+        </div>
+        <p class="ob-fineprint">You can change the model later in Settings. Usage is billed by your provider, not by JARVIS.</p>
+      </section>
+
+      <section class="ob-pane hidden" id="ob-step-3">
+        <div class="ob-ready" aria-hidden="true"><span>✓</span></div>
+        <p class="eyebrow">Ready</p>
+        <h2 id="ob-ready-title">I'm awake.</h2>
+        <p class="ob-lead" id="ob-ready-copy">Your private core is online. Ask me for a briefing, open the browser, or connect your calendar and Canvas when you want.</p>
+        <div class="ob-ready-list">
+          <span>✓ Model connected</span>
+          <span>✓ Memory on this Mac</span>
+          <span>✓ Browser included</span>
+        </div>
+        <button type="button" class="primary wide" id="ob-finish">Open JARVIS</button>
+      </section>
+    </div>
+  </div>
+
   <div class="toast hidden" id="toast" role="status"></div>
 
+  <script src="markdown.js"></script>
   <script src="mock.js"></script>
   <script src="app.js"></script>
+  <script src="workspace.js"></script>
 </body>
 </html>

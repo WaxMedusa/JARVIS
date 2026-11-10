@@ -95,3 +95,38 @@ describe('notes API', () => {
     expect(payload.events).toEqual([]);
   });
 });
+
+describe('capture integrations API', () => {
+  it('reports Canvas as unconfigured instead of failing', async () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-api-'));
+    const mock = new MockProvider([{text: 'ok'}]);
+    app = await createApp({
+      home,
+      env: {...process.env, JARVIS_LLM_PROVIDER: 'mock', JARVIS_EMBEDDINGS: 'false', CANVAS_BASE_URL: '', CANVAS_API_TOKEN: ''},
+      llmSet: {main: mock, small: mock, embedder: null},
+      registerTools: false,
+      connectMcp: false,
+    });
+    const {hono} = createHttpApp(app);
+    const response = await hono.request('/v1/canvas');
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as {available: boolean; message: string};
+    expect(payload.available).toBe(false);
+    expect(payload.message).toMatch(/Canvas/);
+  });
+
+  it('lists and validates calendar feeds without exposing URLs', async () => {
+    const {request} = await testServer();
+    const empty = await request('/v1/calendar/feeds');
+    expect(empty.status).toBe(200);
+    expect(((await empty.json()) as {feeds: unknown[]}).feeds).toEqual([]);
+
+    const invalid = await request('/v1/calendar/feeds', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({url: 'http://insecure.example.com/calendar.ics'}),
+    });
+    expect(invalid.status).toBe(400);
+    expect(((await invalid.json()) as {error: string}).error).toMatch(/https/);
+  });
+});

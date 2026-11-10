@@ -16,6 +16,59 @@ export interface CalendarEvent {
   attendees?: string[];
   description?: string;
   htmlLink?: string;
+  all_day?: boolean;
+  source?: string;
+}
+
+export interface CalendarFeedSummary {
+  id: string;
+  label: string;
+  host: string;
+  addedAt: string;
+}
+
+export interface CalendarFeedService {
+  list(): CalendarFeedSummary[];
+  add(args: {url: string; label?: string}): Promise<CalendarFeedSummary>;
+  remove(id: string): boolean;
+  events(args: {timeMin: string; timeMax: string}): Promise<{events: CalendarEvent[]; warnings: string[]}>;
+}
+
+export interface CanvasCourse {
+  id: string;
+  name: string;
+  courseCode?: string;
+  term?: string;
+  url?: string;
+}
+
+export interface CanvasAssignment {
+  id: string;
+  courseId: string;
+  courseName: string;
+  name: string;
+  dueAt?: string;
+  points?: number;
+  url?: string;
+  submitted?: boolean;
+  type: string;
+}
+
+export interface CanvasTodo {
+  type: string;
+  title: string;
+  courseId?: string;
+  courseName?: string;
+  dueAt?: string;
+  url?: string;
+}
+
+export interface CanvasService {
+  status(): Promise<{connected: boolean; name?: string; email?: string}>;
+  courses(): Promise<CanvasCourse[]>;
+  assignments(courseId: string, bucket?: string): Promise<CanvasAssignment[]>;
+  upcoming(limit?: number): Promise<CanvasAssignment[]>;
+  todo(limit?: number): Promise<CanvasTodo[]>;
 }
 
 export interface GoogleService {
@@ -104,9 +157,11 @@ export interface IntegrationServices {
   github: GitHubService | null;
   homeAssistant: HomeAssistantService | null;
   linear: LinearService | null;
+  canvas: CanvasService | null;
   email: EmailService | null;
   supabase: SupabaseService | null;
   rss: RssService | null;
+  calendarFeeds: CalendarFeedService;
 }
 
 export interface IntegrationHub {

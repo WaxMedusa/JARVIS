@@ -2,8 +2,8 @@
 
 A personal AI chief-of-staff that remembers you, acts on your systems, and runs
 on your own machine. **Not a website** — it is a TypeScript backend, a terminal
-assistant, a daemon with an HTTP/SSE API, scheduler and Telegram bridge, and an
-always-there macOS companion that sits in the corner of your screen.
+assistant, a daemon with an HTTP/SSE API, scheduler and Telegram bridge, and a
+self-contained macOS app that runs the whole assistant on your Mac.
 
 JARVIS is deliberately single-user and local-first. Its memory lives in SQLite,
 its credentials are encrypted on disk, and every state-changing action passes
@@ -40,10 +40,10 @@ through a policy engine and an append-only audit log.
   SHA-256 hash-chained audit log.
 - **Work offline.** A deterministic mock provider powers `npm run smoke`,
   tests and development with no API key.
-- **Be always there.** The macOS companion is a frameless, always-on-top
-  panel in the corner of the screen, with a menu-bar icon, `⌘⇧J`, streaming
-  chat, notes, a seven-day Google Calendar agenda, voice notes, dictation,
-  tool activity, approval cards and one-click clipboard capture.
+- **Be always there.** The macOS app is a full desktop workspace with a
+  menu-bar icon and `⌘⇧J`: streaming chat, an embedded browser JARVIS can read,
+  notes and voice notes, a Google/iCloud/Outlook calendar, read-only Canvas
+  courses and assignments, tool activity, approvals and clipboard capture.
 - **Reach you where you are.** Interactive CLI, one-shot `ask`, HTTP/SSE API,
   Telegram long-polling, the macOS companion, and speech-to-text/text-to-speech.
 
@@ -102,39 +102,33 @@ You can also chat offline:
 JARVIS_LLM_PROVIDER=mock npm run dev -- chat
 ```
 
-## The macOS companion
+## The macOS app
 
-JARVIS Companion is an Electron menu-bar app that keeps the assistant in the
-corner of your Mac. It requires the daemon:
-
-```bash
-jarvis serve
-```
-
-Download the latest DMG from
+JARVIS for macOS is self-contained: the core, memory, tools, browser, Canvas and
+calendar engine all ship inside the app. Download the latest DMG from
 [Releases](https://github.com/WaxMedusa/JARVIS/releases) — look for
-`JARVIS-Companion-*.dmg` — or build it locally:
+`JARVIS-*.dmg` — drag JARVIS to Applications, open it, and choose a model. No
+terminal, Node install or separate `jarvis serve` is required.
+
+Inside: streaming chat with Markdown and approvals, notes and voice notes, an
+embedded browser JARVIS can read, Google Calendar/iCloud/Outlook private iCal
+feeds, and read-only Canvas courses and assignments. The model key is kept in
+the macOS Keychain; the private core starts on a random loopback port with a
+fresh per-run token. The renderer never sees either credential.
+
+Release 3.0.0 ships Intel and Apple silicon DMGs/ZIPs. With the five Apple
+secrets configured the workflow signs with a Developer ID Application
+certificate and notarizes the build; otherwise it publishes a clearly labelled
+unsigned preview prerelease so the app stays installable. To build locally:
 
 ```bash
+npm ci && npm run build
 cd apps/companion
-npm install
-npm run assets
-npm run dist:mac
+npm ci && npm run assets && npm run dist:mac
 ```
 
-The companion now includes Notes, Agenda and voice capture as first-class views.
-Release 2.1.0 ships a DMG and ZIP for Intel and Apple silicon. When the five
-Apple secrets are configured the workflow signs with a Developer ID Application
-certificate and notarizes the build; otherwise it publishes a clearly labelled
-unsigned preview prerelease (`companion-v2.1.0-unsigned`) so the app stays
-installable. The 2.0.0 artifacts predate signing and remain unsigned, and local
-builds are unsigned unless configured. The companion never holds the API token
-in its renderer:
-Electron's main process talks to the daemon, and the token is encrypted with
-`safeStorage`. Microphone access is limited to the companion window and is used
-only while the user is recording. See
-[apps/companion/README.md](apps/companion/README.md) for the full security
-model, development preview, and signed-release setup.
+See [apps/companion/README.md](apps/companion/README.md) for first-run setup,
+the security model, development preview, and signed-release setup.
 
 ## Choosing a model
 
@@ -498,7 +492,7 @@ src/
   notify/       console, webhook, Telegram, desktop notifications
 docs/           architecture, security, Supabase schema
 tests/          Vitest suite
-apps/companion/ macOS menu-bar app (Electron, own tests and release workflow)
+apps/companion/ self-contained macOS app (Electron + bundled core, own tests/workflow)
 scripts/smoke.ts offline end-to-end check
 ```
 
