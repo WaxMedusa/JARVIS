@@ -48,7 +48,7 @@ await build({
 
 await writeFile(
   path.join(targetDir, 'package.json'),
-  `${JSON.stringify({name: 'jarvis-core', version: '3.0.0', private: true, type: 'commonjs'}, null, 2)}\n`,
+  `${JSON.stringify({name: 'jarvis-core', version: '3.0.1', private: true, type: 'commonjs'}, null, 2)}\n`,
   'utf8',
 );
 

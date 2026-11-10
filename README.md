@@ -116,7 +116,7 @@ feeds, and read-only Canvas courses and assignments. The model key is kept in
 the macOS Keychain; the private core starts on a random loopback port with a
 fresh per-run token. The renderer never sees either credential.
 
-Release 3.0.0 ships Intel and Apple silicon DMGs/ZIPs. With the five Apple
+Release 3.0.1 ships Intel and Apple silicon DMGs/ZIPs. With the five Apple
 secrets configured the workflow signs with a Developer ID Application
 certificate and notarizes the build; otherwise it publishes a clearly labelled
 unsigned preview prerelease so the app stays installable. To build locally:

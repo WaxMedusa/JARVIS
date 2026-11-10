@@ -144,7 +144,8 @@ jobs:
           plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist"
           plutil -extract NSMicrophoneUsageDescription raw -o - "$app/Contents/Info.plist"
           version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
-          test "$version" = "3.0.0"
+          expected_version="$(node -p "require('./package.json').version")"
+          test "$version" = "$expected_version"
           lui="$(plutil -extract LSUIElement raw -o - "$app/Contents/Info.plist")"
           case "$lui" in 0|false) ;; *) echo "::error::LSUIElement must be false, got $lui"; exit 1;; esac
           ./node_modules/.bin/asar list "$app/Contents/Resources/app.asar" | grep -q '/workspace.js'
@@ -195,6 +196,16 @@ jobs:
           set -euo pipefail
           app="$(find release -maxdepth 2 -type d -name 'JARVIS.app' -print -quit)"
           codesign --verify --deep --strict --verbose=2 "$app"
+          signature="$(codesign -dv --verbose=4 "$app" 2>&1)"
+          echo "$signature"
+          case "$signature" in
+            *"Authority=Developer ID Application"*) ;;
+            *) echo "::error::The app is not signed by a Developer ID Application certificate."; exit 1 ;;
+          esac
+          case "$signature" in
+            *"TeamIdentifier="*) ;;
+            *) echo "::error::The app signature has no Apple team identifier."; exit 1 ;;
+          esac
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
 

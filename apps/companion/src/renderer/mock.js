@@ -115,7 +115,7 @@
     hasToken: false,
     hasApiKey: true,
     hasCanvasToken: true,
-    version: '3.0.0',
+    version: '3.0.1',
     platform: 'darwin',
     hotkeyActive: true,
     core: {state: 'online', message: 'Preview core is online.', managed: true},
@@ -254,7 +254,7 @@
     },
     testConnection: async () => ({
       name: 'JARVIS',
-      version: '3.0.0',
+      version: '3.0.1',
       model: 'mock/preview',
       provider: 'mock',
       tools: 53,

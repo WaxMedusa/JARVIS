@@ -58,7 +58,7 @@ export function createHttpApp(app: App): {hono: Hono; broker: ApprovalBroker} {
   hono.get('/v1/status', (c) =>
     c.json({
       name: app.config.assistant.name,
-      version: '3.0.0',
+      version: '3.0.1',
       uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       model: app.config.llm.model,
       provider: app.config.llm.provider,

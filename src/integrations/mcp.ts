@@ -34,7 +34,7 @@ export class McpManager {
 
     for (const server of servers) {
       try {
-        const client = new Client({name: 'jarvis', version: '3.0.0'}, {capabilities: {}});
+        const client = new Client({name: 'jarvis', version: '3.0.1'}, {capabilities: {}});
         const transport = server.url
           ? new StreamableHTTPClientTransport(new URL(server.url), {
               requestInit: {headers: server.headers},
