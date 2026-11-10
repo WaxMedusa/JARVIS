@@ -43,7 +43,7 @@ export class Policy {
 
   constructor(config: JarvisConfig) {
     this.config = config;
-    this.roots = config.security.allowedPaths.map((root) => path.resolve(expandHome(root)));
+    this.roots = config.security.allowedPaths.map((root) => canonicalRoot(root));
     this.denyPatterns = config.security.denyPathPatterns.map(globToRegExp);
   }
 
@@ -209,6 +209,25 @@ export class Policy {
       denyPathPatterns: this.config.security.denyPathPatterns,
     };
   }
+}
+
+/**
+ * Canonicalize a configured allow-root. On macOS `/tmp` and `/var` are
+ * symlinks, so comparing a realpath'd candidate against a non-canonical root
+ * would reject files that are actually inside the jail.
+ */
+function canonicalRoot(value: string): string {
+  const resolved = path.resolve(expandHome(value));
+  try {
+    if (fs.existsSync(resolved)) return fs.realpathSync(resolved);
+    const parent = path.dirname(resolved);
+    if (parent !== resolved && fs.existsSync(parent)) {
+      return path.join(fs.realpathSync(parent), path.basename(resolved));
+    }
+  } catch {
+    // Fall back to the resolved path; validatePath will still deny escapes.
+  }
+  return resolved;
 }
 
 export function isWithin(candidate: string, root: string): boolean {

@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
 import {createHarness, type Harness} from './helpers.js';
+import {Policy} from '../src/security/policy.js';
+import type {JarvisConfig} from '../src/config.js';
 
 let harness: Harness | undefined;
 
@@ -19,6 +21,22 @@ describe('Policy', () => {
     expect(harness.policy.validatePath(inside).action).toBe('allow');
     expect(harness.policy.validatePath('/etc/passwd').action).toBe('deny');
     expect(harness.policy.validatePath(path.join(harness.home, '..', 'escape.md')).action).toBe('deny');
+  });
+
+  it('canonicalizes an allowed root that is itself a symlink', () => {
+    const real = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-real-root-'));
+    const link = `${real}-link`;
+    fs.symlinkSync(real, link, 'dir');
+    try {
+      const policy = new Policy({security: {allowedPaths: [link], denyPathPatterns: []}} as unknown as JarvisConfig);
+      const inside = path.join(real, 'note.md');
+      fs.writeFileSync(inside, 'hello');
+      expect(policy.validatePath(inside).action).toBe('allow');
+      expect(policy.validatePath(path.join(real, '..', 'escape.md')).action).toBe('deny');
+    } finally {
+      fs.rmSync(link, {force: true});
+      fs.rmSync(real, {recursive: true, force: true});
+    }
   });
 
   it('blocks symlink escapes', () => {
